@@ -1,19 +1,18 @@
 """OTG MCP models package."""
 
-from .router_models import (
+from .models import (
     ApiResponse,
     CaptureResponse,
     ConfigResponse,
     ControlResponse,
-    HealthStatus,
     MetricsResponse,
     SnappiError,
-)
-from .server_models import (
     PortInfo,
     TrafficGeneratorInfo,
     TrafficGeneratorStatus,
     CapabilitiesVersionResponse,
+    HealthStatus,
+    TargetHealthInfo,
 )
 
 __all__ = [
@@ -25,7 +24,8 @@ __all__ = [
     "TrafficGeneratorStatus",
     "TrafficGeneratorInfo",
     "PortInfo",
-    "HealthStatus",
     "SnappiError",
     "CapabilitiesVersionResponse",
+    "HealthStatus",
+    "TargetHealthInfo",
 ]

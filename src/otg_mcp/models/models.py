@@ -1,26 +1,21 @@
-"""Models for the OTG MCP server responses."""
+"""Unified models for OTG MCP."""
 
-from typing import Any, Dict, Optional
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
-
-
-class CapabilitiesVersionResponse(BaseModel):
-    """Response from the capabilities/version endpoint."""
-
-    api_spec_version: str
-    sdk_version: str
-    app_version: str
 
 
 class ApiResponse(BaseModel):
     """Base response model for API responses."""
 
     status: str = Field(default="success", description="Status of the response")
+    message: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
 
 
 class ConfigResponse(ApiResponse):
-    """Response model for configuration responses."""
+    """Response model for configuration operations."""
 
     config: Optional[Dict[str, Any]] = Field(
         default=None, description="Configuration data"
@@ -28,16 +23,17 @@ class ConfigResponse(ApiResponse):
 
 
 class MetricsResponse(ApiResponse):
-    """Response model for metrics responses."""
+    """Response model for metrics operations."""
 
     metrics: Optional[Dict[str, Any]] = Field(default=None, description="Metrics data")
 
 
 class CaptureResponse(ApiResponse):
-    """Response model for capture responses."""
+    """Response model for capture operations."""
 
     port: str = Field(..., description="Name of the port used for capture")
     data: Optional[Dict[str, Any]] = Field(default=None, description="Capture data")
+    capture_id: Optional[str] = None
 
 
 class ControlResponse(ApiResponse):
@@ -47,6 +43,7 @@ class ControlResponse(ApiResponse):
     verified: Optional[bool] = Field(
         default=None, description="Whether the action was verified"
     )
+    timestamp: datetime = Field(default_factory=datetime.now)
 
 
 class PortInfo(BaseModel):
@@ -62,6 +59,14 @@ class PortInfo(BaseModel):
     def interface_name(self) -> str:
         """Get the interface name, falling back to location if not set."""
         return self.interface or self.location
+
+
+class CapabilitiesVersionResponse(BaseModel):
+    """Response from the capabilities/version endpoint."""
+
+    api_spec_version: str
+    sdk_version: str
+    app_version: str
 
 
 class TrafficGeneratorInfo(BaseModel):
@@ -95,9 +100,18 @@ class TargetHealthInfo(BaseModel):
     error: Optional[str] = Field(None, description="Error message if unhealthy")
 
 
-class HealthStatus(ApiResponse):
+class HealthStatus(BaseModel):
     """Health status collection of all traffic generators."""
 
+    status: str = Field(default="success", description="Status of the response")
     targets: Dict[str, TargetHealthInfo] = Field(
         default_factory=dict, description="Health status of individual targets"
     )
+
+
+class SnappiError(BaseModel):
+    """Error model for snappi errors."""
+
+    error: str
+    detail: Optional[str] = None
+    code: Optional[int] = None

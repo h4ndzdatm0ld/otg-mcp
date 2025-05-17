@@ -1,6 +1,6 @@
 {
   "targets": {
-    "fantasia-1x.heshlaw.local": {
+    "fantasia-1x.heshlaw.local:8443": {
       "apiVersion": "1.30.0",
       "ports": {
         "p1": {
@@ -9,7 +9,7 @@
         }
       }
     },
-    "fantasia-2x.heshlaw.local": {
+    "fantasia-2x.heshlaw.local:8443": {
       "apiVersion": "1.30.0",
       "ports": {
         "p1": {

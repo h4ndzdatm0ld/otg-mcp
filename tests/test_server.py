@@ -2,8 +2,8 @@ from unittest import mock
 
 import pytest
 
-from otg_mcp.models import HealthStatus
-from otg_mcp.server import FastMCP, OtgMcpServer
+from otg_mcp.models import HealthStatus, TargetHealthInfo
+from otg_mcp.server import FastMCP
 
 
 @pytest.fixture
@@ -20,10 +20,14 @@ class TestOtgMcpServer:
         """Test the health check tool."""
         # Simplify the test - we just want to verify that a health status
         # object has the expected properties
+        target_info = TargetHealthInfo(name="target1", healthy=True)
         health_status = HealthStatus(
-            status="healthy", server_info={"server_name": "otg-mcp-server"}
+            status="success",
+            targets={"target1": target_info}
         )
 
         # Verify health status properties
-        assert health_status.status == "healthy"
-        assert health_status.server_info == {"server_name": "otg-mcp-server"}
+        assert health_status.status == "success"
+        assert "target1" in health_status.targets
+        assert health_status.targets["target1"].name == "target1"
+        assert health_status.targets["target1"].healthy == True

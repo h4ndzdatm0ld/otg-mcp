@@ -105,17 +105,6 @@ The project maintains high code quality standards:
 - **Logging**: Preferred over comments throughout codebase
 - **Data Models**: Pydantic models for validation and serialization
 
-## Common Issues and Solutions
-
-### Traffic Generator Connectivity
-
-For issues connecting to traffic generators, see the [Traffic Generator Guide](./docs/traffic_generator_guide.md) which documents common issues and their solutions:
-
-- Connection protocol issues (HTTP vs HTTPS)
-- Port configuration format requirements
-- Handling deprecated API methods
-- Defensive programming techniques
-
 ## Contributing
 
 1. Ensure all code includes proper type hints
@@ -123,37 +112,6 @@ For issues connecting to traffic generators, see the [Traffic Generator Guide](.
 3. Add comprehensive tests for new features
 4. Use logging rather than comments for important operations
 5. Update documentation for any API or behavior changes
-
-## Future Development
-
-### Dynamic Client Generation
-
-In future versions, the project will move towards a dynamic client generation approach instead of relying directly on the snappi dependency. This will provide greater flexibility and reduce external dependencies.
-
-The planned implementation will use code similar to this:
-
-```python
-# Define the OpenAPI specification URL
-openapi_url = "https://raw.githubusercontent.com/open-traffic-generator/models/v0.12.5/artifacts/openapi.yaml"
-
-# Set the output directory for the generated client
-output_dir = Path("generated_client")
-
-# Create a configuration for the generator
-config = Config()
-
-# Initialize the generator with the configuration
-generator = Generator(config=config)
-
-# Generate the client from the OpenAPI URL
-result = generator.create_new_client_from_url(
-    url=openapi_url,
-    path=output_dir,
-    config=config
-)
-```
-
-This approach will allow the client to be dynamically generated from the latest OpenAPI specifications, ensuring compatibility with new versions of the traffic generator API without requiring manual updates to the client code. The generated client will replace the current direct dependency on snappi, making the system more flexible and maintainable.
 
 ## License
 

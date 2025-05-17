@@ -24,10 +24,10 @@ from otg_mcp.models import (
     HealthStatus,
     MetricsResponse,
     PortInfo,
+    TargetHealthInfo,
     TrafficGeneratorInfo,
     TrafficGeneratorStatus,
 )
-from otg_mcp.models.server_models import TargetHealthInfo
 from otg_mcp.schema_registry import get_schema_registry
 
 logger = logging.getLogger(__name__)
@@ -937,7 +937,7 @@ class OtgClient:
         """
         logger.info(f"Checking health of {target or 'all targets'}")
 
-        health_status = HealthStatus(targets={})
+        health_status = HealthStatus(status="success")  # Initialize with required status field
 
         try:
             target_names = []
