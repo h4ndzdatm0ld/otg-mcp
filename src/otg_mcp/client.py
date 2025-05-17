@@ -10,9 +10,9 @@ import logging
 import time
 import traceback
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
-import snappi
+import snappi  # type: ignore
 from pydantic import BaseModel, Field
 
 from otg_mcp.config import Config
@@ -446,7 +446,9 @@ class OtgClient:
             logger.info("Retrieving the applied configuration")
             config = api.get_config()
             logger.info("Serializing retrieved config to dictionary")
-            config_dict = config.serialize(encoding=config.DICT)
+            logger.debug("Casting config to Any type to handle dynamic attributes")
+            config_obj = cast(Any, config)
+            config_dict = config_obj.serialize(encoding=config_obj.DICT)
 
             return ConfigResponse(status="success", config=config_dict)
         except Exception as e:
@@ -474,7 +476,9 @@ class OtgClient:
             config = api.get_config()
 
             logger.info("Serializing config to dictionary")
-            config_dict = config.serialize(encoding=config.DICT)
+            logger.debug("Casting config to Any type to handle dynamic attributes")
+            config_obj = cast(Any, config)
+            config_dict = config_obj.serialize(encoding=config_obj.DICT)
 
             return ConfigResponse(status="success", config=config_dict)
         except Exception as e:
@@ -598,7 +602,8 @@ class OtgClient:
 
             logger.info("Processing capture response")
             try:
-                data = response.serialize(encoding=response.DICT)
+                response_obj = cast(Any, response)  # Cast to Any to handle dynamic attributes
+                data = response_obj.serialize(encoding=response_obj.DICT)
             except Exception as e:
                 logger.info(
                     f"Error serializing capture response: {e}, using default status"
@@ -634,8 +639,9 @@ class OtgClient:
 
                 logger.info(f"Adding port configurations for {hostname}")
                 for port_name, port_config in target_config.ports.items():
+                    location = port_config.location or ""  # Ensure location is not None
                     gen_info.ports[port_name] = PortInfo(
-                        name=port_name, location=port_config.location
+                        name=port_name, location=location, interface=None
                     )
 
                 logger.info(f"Testing connection to {hostname}")
@@ -690,7 +696,7 @@ class OtgClient:
                 }
 
                 for port_name, port_config in target_config.ports.items():
-                    target_dict["ports"][port_name] = {
+                    target_dict["ports"][port_name] = {  # type: ignore
                         "location": port_config.location,
                         "name": port_config.name,
                     }
@@ -698,6 +704,8 @@ class OtgClient:
                 logger.info(f"Testing connection to {target_name}")
                 try:
                     self._get_api_client(target_name)
+                    logger.debug("Casting to a properly typed object to handle dynamic attributes")
+                    api_client = cast(Any, self._get_api_client(target_name))
                     target_dict["available"] = True
                     logger.info(f"Target {target_name} is available")
                 except Exception as e:
@@ -705,7 +713,7 @@ class OtgClient:
                     target_dict["available"] = False
                     target_dict["error"] = str(e)
 
-                result[target_name] = target_dict
+                result[target_name] = target_dict  # type: ignore
 
             logger.info(
                 f"Found {len(result)} targets, {sum(1 for t in result.values() if t['available'])} available"
@@ -959,13 +967,13 @@ class OtgClient:
 
                     logger.info(f"Target {target_name} is healthy")
                     health_status.targets[target_name] = TargetHealthInfo(
-                        name=target_name, healthy=True, version_info=version_info
+                        name=target_name, healthy=True, version_info=version_info, error=None
                     )
 
                 except Exception as e:
                     logger.warning(f"Target {target_name} is unhealthy: {str(e)}")
                     health_status.targets[target_name] = TargetHealthInfo(
-                        name=target_name, healthy=False, error=str(e)
+                        name=target_name, healthy=False, error=str(e), version_info=None
                     )
 
             logger.info(f"Health check complete for {len(target_names)} targets")
@@ -1051,7 +1059,9 @@ class OtgClient:
                 )
 
             logger.info("Serializing metrics to dictionary")
-            metrics_dict = metrics.serialize(encoding=metrics.DICT)
+            logger.debug("Casting metrics to Any type to handle dynamic attributes")
+            metrics_obj = cast(Any, metrics)
+            metrics_dict = metrics_obj.serialize(encoding=metrics_obj.DICT)
 
             return MetricsResponse(status="success", metrics=metrics_dict)
         except Exception as e:

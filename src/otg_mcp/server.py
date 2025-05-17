@@ -8,7 +8,7 @@ import argparse
 import logging
 import sys
 import traceback
-from typing import Any, Annotated, Dict, List, Optional, Union
+from typing import Any, Annotated, Dict, List, Literal, Optional, Union
 
 from fastmcp import FastMCP
 from pydantic import Field
@@ -51,7 +51,7 @@ class OtgMcpServer:
             config.setup_logging()
 
             logger.info("Creating the FastMCP instance")
-            self.mcp = FastMCP("otg-mcp-server", log_level="INFO")
+            self.mcp: FastMCP = FastMCP("otg-mcp-server", log_level="INFO")
 
             logger.info("Initializing OTG client")
             self.client = OtgClient(config=config)
@@ -204,11 +204,11 @@ class OtgMcpServer:
         logger.info(f"Tool: list_schemas_for_target for {target_name}")
         return await self.client.list_schemas_for_target(target_name)
 
-    def run(self, transport: str = "stdio"):
+    def run(self, transport: Literal["stdio", "sse"] = "stdio"):
         """Run the server with the specified transport mechanism.
 
         Args:
-            transport: Transport to use (stdio or http)
+            transport: Transport to use (stdio or sse)
         """
         try:
             self.mcp.run(transport=transport)
@@ -232,16 +232,16 @@ def run_server() -> None:
         parser.add_argument(
             "--transport",
             type=str,
-            choices=["stdio", "http"],
+            choices=["stdio", "sse"],
             default="stdio",
-            help="Transport mechanism to use (stdio or http)",
+            help="Transport mechanism to use (stdio or sse)",
         )
 
         args = parser.parse_args()
 
         logger.info("Initializing and running the server with the config file")
         server = OtgMcpServer(config_file=args.config_file)
-        server.run(transport=args.transport)
+        server.run(transport=args.transport)  # type: ignore
     except Exception as e:
         logger.critical(f"Server failed with error: {str(e)}")
         logger.critical(f"Stack trace: {traceback.format_exc()}")

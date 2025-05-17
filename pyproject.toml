@@ -19,6 +19,7 @@ dependencies = [
   "tenacity>=8.2.2",
   "snappi>=1.28.2",
   "mcp[cli]>=1.6.0",
+  "types-pyyaml>=6.0.12.20250516",
 ]
 requires-python = ">=3.11"
 

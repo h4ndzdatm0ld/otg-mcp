@@ -44,6 +44,9 @@ class ControlResponse(ApiResponse):
         default=None, description="Whether the action was verified"
     )
     timestamp: datetime = Field(default_factory=datetime.now)
+    result: Optional[Dict[str, Any]] = Field(
+        default=None, description="Result details of the control operation"
+    )
 
 
 class PortInfo(BaseModel):

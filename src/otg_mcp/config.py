@@ -48,9 +48,9 @@ class DirectConnectionInfo:
 class PortConfig(BaseModel):
     """Configuration for a port on a traffic generator."""
 
-    location: str = Field(None, description="Location of the port (hostname:port)")
-    name: str = Field(None, description="Name of the port")
-    interface: str = Field(None, description="Interface name (backward compatibility)")
+    location: Optional[str] = Field(None, description="Location of the port (hostname:port)")
+    name: Optional[str] = Field(None, description="Name of the port")
+    interface: Optional[str] = Field(None, description="Interface name (backward compatibility)")
 
     @validator("location", pre=True, always=True)
     def validate_location(cls, v, values):
@@ -115,8 +115,8 @@ class Config:
             logger.info("No targets defined - adding default development target")
             example_target = TargetConfig(
                 ports={
-                    "p1": PortConfig(location="localhost:5555", name="p1"),
-                    "p2": PortConfig(location="localhost:5555", name="p2"),
+                    "p1": PortConfig(location="localhost:5555", name="p1", interface=None),
+                    "p2": PortConfig(location="localhost:5555", name="p2", interface=None),
                 }
             )
             self.targets.targets["localhost:8443"] = example_target
@@ -185,7 +185,7 @@ class Config:
                             f"Creating port config for {port_name} with location {port_data['location']}"
                         )
                         target_config.ports[port_name] = PortConfig(
-                            location=port_data["location"], name=name
+                            location=port_data["location"], name=name, interface=None
                         )
                 else:
                     logger.warning(
