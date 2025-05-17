@@ -9,69 +9,48 @@ on:
     types: [published]
 
 jobs:
-  detect-packages:
-    runs-on: ubuntu-latest
-    outputs:
-      packages: ${{ steps.find-packages.outputs.packages }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Find Python packages
-        id: find-packages
-        working-directory: src
-        run: |
-          PACKAGES=$(find . -name pyproject.toml -exec dirname {} \; | sed 's/^\.\///' | jq -R -s -c 'split("\n")[:-1]')
-          echo "packages=$PACKAGES" >> $GITHUB_OUTPUT
-
   build:
-    needs: [detect-packages]
+    name: Build and Test
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        package: ${{ fromJson(needs.detect-packages.outputs.packages) }}
-    name: Build ${{ matrix.package }}
-    runs-on: ubuntu-latest
+        python-version: [3.9, 3.10, 3.11]
     steps:
       - uses: actions/checkout@v4
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
 
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version-file: "src/${{ matrix.package }}/.python-version"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        working-directory: src/${{ matrix.package }}
-        run: uv sync --frozen --all-extras --dev
-
-      - name: Run pyright
-        working-directory: src/${{ matrix.package }}
-        run: uv run --frozen pyright
+        run: |
+          uv pip install -e .
+          uv pip install -r requirements/requirements-hatch-test.py3.11.txt
 
       - name: Run unit tests
-        working-directory: src/${{ matrix.package }}
-        run: uv run --frozen pytest --cov=. --cov-report=xml
+        run: |
+          pytest tests/ --cov=src --cov-report=xml
 
       - name: Build package
-        working-directory: src/${{ matrix.package }}
-        run: uv build
+        run: |
+          uv pip install build wheel
+          python -m build
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.package }}
-          path: src/${{ matrix.package }}/dist/
+          name: dist-python-${{ matrix.python-version }}
+          path: dist/
 
   publish:
     runs-on: ubuntu-latest
-    needs: [build, detect-packages]
+    needs: [build]
     if: github.event_name == 'release'
-
-    strategy:
-      matrix:
-        package: ${{ fromJson(needs.detect-packages.outputs.packages) }}
-    name: Publish ${{ matrix.package }}
+    name: Publish Package
 
     # Note: To use environments for PyPI publishing, you would need to:
     # 1. Create a 'release' environment in GitHub repository settings
@@ -84,7 +63,8 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: dist-${{ matrix.package }}
+          pattern: dist-*
+          merge-multiple: true
           path: dist/
 
       - name: Publish package to PyPI
