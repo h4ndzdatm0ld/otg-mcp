@@ -21,7 +21,6 @@ from otg_mcp.models import (
     ControlResponse,
     HealthStatus,
     MetricsResponse,
-    TargetHealthInfo,
 )
 
 logger = logging.getLogger(__name__)

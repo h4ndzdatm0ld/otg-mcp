@@ -1,4 +1,4 @@
-name: Python
+name: "Python CI"
 
 on:
   # Run on all branch pushes to ensure tests always run
@@ -9,7 +9,34 @@ on:
     types: [published]
 
 jobs:
+  linters:
+    name: "Code Quality - Linting"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install Python
+        run: uv python install 3.11
+
+      - name: Create virtual environment
+        run: uv venv
+
+      - name: Install dependencies
+        run: |
+          uv pip install -e .
+          uv pip install ruff mypy
+
+      - name: Lint with ruff
+        run: uv run ruff check .
+
+      - name: Type check with mypy
+        run: uv run mypy src/
+
   build:
+    needs: [linters]
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -39,13 +66,7 @@ jobs:
         run: uv pip install -e .
 
       - name: Install test dependencies
-        run: uv pip install -r requirements/requirements-hatch-test.py3.11.txt ruff mypy
-
-      - name: Lint with ruff
-        run: uv run ruff check src/
-
-      - name: Type check with mypy
-        run: uv run mypy src/
+        run: uv pip install -r requirements/requirements-hatch-test.py3.11.txt
 
       - name: Run tests
         run: uv run pytest tests/ --cov=src --cov-report=xml

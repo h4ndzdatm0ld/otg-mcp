@@ -30,4 +30,4 @@ class TestOtgMcpServer:
         assert health_status.status == "success"
         assert "target1" in health_status.targets
         assert health_status.targets["target1"].name == "target1"
-        assert health_status.targets["target1"].healthy == True
+        assert health_status.targets["target1"].healthy
