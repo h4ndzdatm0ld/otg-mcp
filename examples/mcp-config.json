@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "custom-server": {
+      "command": "python",
+      "args": [
+        "run_server.py",
+        "--config-file",
+        "trafficGeneratorConfig.json"
+      ]
+    }
+  }
+}

@@ -1,0 +1,365 @@
+openapi: 3.0.3
+info:
+  title: Open Traffic Generator API
+  description: "Open Traffic Generator API defines a model-driven, vendor-neutral\
+    \ and standard \ninterface for emulating layer 2-7 network devices and generating\
+    \ test traffic.\n\nContributions can be made in the following ways:\n- [open an\
+    \ issue](https://github.com/open-traffic-generator/models/issues) in the models\
+    \ repository\n- [fork the models repository](https://github.com/open-traffic-generator/models)\
+    \ and submit a PR"
+  version: 1.30.0
+  contact:
+    url: https://github.com/open-traffic-generator/models
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  x-model-guide: https://github.com/open-traffic-generator/models/blob/master/MODEL-GUIDE.md
+servers:
+- url: /
+paths:
+  /config:
+    post:
+      tags:
+      - Configuration
+      operationId: set_config
+      description: |-
+        Sets configuration resources on the traffic generator.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Config'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+          x-field-uid: 1
+        default:
+          $ref: '#/components/responses/Failure'
+          x-field-uid: 2
+    get:
+      tags:
+      - Configuration
+      operationId: get_config
+      responses:
+        '200':
+          description: |-
+            Config response from the traffic generator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Config'
+          x-field-uid: 1
+        default:
+          $ref: '#/components/responses/Failure'
+          x-field-uid: 2
+    patch:
+      tags:
+      - Configuration
+      operationId: update_config
+      description: |-
+        Updates specific attributes of resources configured on the traffic generator. The fetched configuration shall reflect the updates applied successfully.
+        The Response.Warnings in the Success response is available for implementers to disclose additional information about a state change including any implicit changes that are outside the scope of the state change.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Config.Update'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+          x-field-uid: 1
+        default:
+          $ref: '#/components/responses/Failure'
+          x-field-uid: 2
+  /control/state:
+    post:
+      tags:
+      - Control
+      operationId: set_control_state
+      description: |-
+        Sets the operational state of configured resources.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Control.State'
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+          x-field-uid: 1
+        default:
+          $ref: '#/components/responses/Failure'
+          x-field-uid: 2
+  /control/action:
+    post:
+      tags:
+      - Control
+      operationId: set_control_action
+      description: |-
+        Triggers actions against configured resources.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Control.Action'
+      responses:
+        '200':
+          description: |-
+            Response for actions triggered against configured resources.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Control.Action.Response'
+          x-field-uid: 1
+        default:
+          $ref: '#/components/responses/Failure'
+          x-field-uid: 2
+  /monitor/metrics:
+    description: |-
+      Metrics API
+    post:
+      tags:
+      - Monitor
+      operationId: get_metrics
+      requestBody:
+        description: |-
+          Request to traffic generator for metrics of choice
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Metrics.Request'
+      responses:
+        '200':
+          description: |-
+            Response from traffic generator for chosen metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Metrics.Response'
+          x-field-uid: 1
+        default:
+          $ref: '#/components/responses/Failure'
+          x-field-uid: 2
+  /monitor/states:
+    description: |-
+      States API
+    post:
+      tags:
+      - Monitor
+      operationId: get_states
+      requestBody:
+        description: |-
+          Request to traffic generator for states of choice
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/States.Request'
+      responses:
+        '200':
+          description: |-
+            Response from traffic generator for chosen states
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/States.Response'
+          x-field-uid: 1
+        default:
+          $ref: '#/components/responses/Failure'
+          x-field-uid: 2
+  /monitor/capture:
+    description: |-
+      Capture results API
+    post:
+      tags:
+      - Monitor
+      operationId: get_capture
+      requestBody:
+        description: |-
+          Capture results request to the traffic generator.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Capture.Request'
+      responses:
+        '200':
+          description: |-
+            Capture results response from the traffic generator.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          x-field-uid: 1
+        default:
+          $ref: '#/components/responses/Failure'
+          x-field-uid: 2
+  /capabilities/version:
+    get:
+      tags:
+      - Capabilities
+      operationId: get_version
+      responses:
+        '200':
+          description: |-
+            Version details from API server
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Version'
+          x-field-uid: 1
+        default:
+          $ref: '#/components/responses/Failure'
+          x-field-uid: 2
+components:
+  responses:
+    Success:
+      description: "The request has succeeded with no application content but the\
+        \ server \nmay return a list of detailed warnings."
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Warning'
+    Failure:
+      description: |-
+        The request did not succeed and server has responded with error details.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Config:
+      description: |-
+        A container for all models that are part of the configuration.
+      type: object
+      properties:
+        ports:
+          description: |-
+            The ports that will be configured on the traffic generator.
+          type: array
+          items:
+            $ref: '#/components/schemas/Port'
+          x-field-uid: 1
+        lags:
+          description: |-
+            The LAGs that will be configured on the traffic generator.
+          type: array
+          items:
+            $ref: '#/components/schemas/Lag'
+          x-field-uid: 2
+        layer1:
+          description: |-
+            The layer1 settings that will be configured on the traffic generator.
+            Since layer1 settings usually vary across variety of test ports, these
+            most likely won't be portable.
+          type: array
+          items:
+            $ref: '#/components/schemas/Layer1'
+          x-field-uid: 3
+        captures:
+          description: |-
+            The capture settings that will be configured on the traffic generator.
+          type: array
+          items:
+            $ref: '#/components/schemas/Capture'
+          x-field-uid: 4
+        devices:
+          description: "The emulated devices that will be configured on the traffic\
+            \ generator.\nEach device contains configurations for network interfaces\
+            \ and \nprotocols running on top of those interfaces."
+          type: array
+          items:
+            $ref: '#/components/schemas/Device'
+          x-field-uid: 5
+        flows:
+          description: |-
+            The flows that will be configured on the traffic generator.
+          type: array
+          items:
+            $ref: '#/components/schemas/Flow'
+          x-field-uid: 6
+        events:
+          $ref: '#/components/schemas/Event'
+          x-field-uid: 7
+        options:
+          $ref: '#/components/schemas/Config.Options'
+          x-field-uid: 8
+        lldp:
+          description: |-
+            LLDP protocol that will be configured on traffic generator.
+          type: array
+          items:
+            $ref: '#/components/schemas/Lldp'
+          x-field-uid: 9
+        stateful_flows:
+          $ref: '#/components/schemas/StatefulFlow'
+          x-field-uid: 10
+        egress_only_tracking:
+          description: "Container for specification of desired tracking, based on\
+            \ certain offset and length of bits \nfor received packets on specified\
+            \ receive ports. \nIt enables the user to retrieve information based on\
+            \ number of unique packets \nreceived for each unique value in the bits\
+            \ being tracked from the beginning of the test. "
+          type: array
+          items:
+            $ref: '#/components/schemas/EgressOnlyTracking'
+          x-field-uid: 11
+    Config.Options:
+      description: |-
+        Global configuration options.
+      type: object
+      properties:
+        port_options:
+          $ref: '#/components/schemas/Port.Options'
+          x-field-uid: 1
+        protocol_options:
+          $ref: '#/components/schemas/Protocol.Options'
+          x-field-uid: 2
+        per_port_options:
+          type: array
+          items:
+            $ref: '#/components/schemas/PerPort.Options'
+          x-field-uid: 3
+    Port:
+      description: |-
+        An abstract test port.
+      type: object
+      properties:
+        location:
+          description: |-
+            The location of a test port.  It is the endpoint where packets will emit from.
+            Test port locations can be the following:
+              - physical appliance with multiple ports
+              - physical chassis with multiple cards and ports
+              - local interface
+              - virtual machine, docker container, kubernetes cluster
+
+            The test port location format is implementation specific. Use the /results/capabilities API to determine what formats an  implementation supports for the location property.
+            Get the configured location state by using the /results/port API.
+          type: string
+          x-field-uid: 1
+        name:
+          x-field-uid: 2
+          description: |-
+            Globally unique name of an object. It also serves as the primary key for arrays of objects.
+          type: string
+          pattern: ^[\sa-zA-Z0-9-_()><\[\]]+$
+          x-unique: global
+      required:
+      - name
+    Port.Options:
+      description: "Common port options that apply to all configured Port objects. "
+      type: object
+      properties:
+        location_preemption:
+          description: |-
+            Preempt all the test port locations as defined by the  Port.Port.properties.location. If the test ports defined by their location values are in use and  this value is true, the test ports will be preempted.
+          type: boolean
+          default: false
+          x-field-uid: 1

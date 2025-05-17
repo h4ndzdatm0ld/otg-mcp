@@ -1,0 +1,57 @@
+name: Docker
+
+on:
+  # Run on all branch pushes to ensure tests always run
+  push:
+  # All pull requests trigger the workflow
+  pull_request:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  packages: write  # Required for pushing to GitHub Container Registry
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: Build Docker Image
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Test Dockerfile syntax
+      run: docker run --rm -i hadolint/hadolint < Dockerfile || echo "Dockerfile lint warnings found"
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Extract metadata for Docker
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ github.repository_owner }}/otg-mcp
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=sha,format=short
+    
+    - name: Login to GitHub Container Registry
+      # Only login for pushes to main or releases
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        # We only push on main branch or for tagged releases
+        push: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
