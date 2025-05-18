@@ -32,7 +32,6 @@ from otg_mcp.schema_registry import get_schema_registry
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-
 @dataclass
 class OtgClient:
     """
