@@ -1,0 +1,1070 @@
+"""
+OTG Client module providing a direct interface to traffic generator APIs.
+
+This simplified client provides a single entry point for traffic generator operations
+using snappi API directly, with proper target management and version detection.
+"""
+
+import logging
+import time
+import traceback
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Union
+
+import aiohttp
+import snappi  # type: ignore
+from pydantic import BaseModel, Field
+
+from otg_mcp.config import Config
+from otg_mcp.models import (
+    CapabilitiesVersionResponse,
+    CaptureResponse,
+    ConfigResponse,
+    ControlResponse,
+    HealthStatus,
+    MetricsResponse,
+    PortInfo,
+    TargetHealthInfo,
+    TrafficGeneratorInfo,
+    TrafficGeneratorStatus,
+)
+from otg_mcp.schema_registry import get_schema_registry
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+
+class TargetRequest(BaseModel):
+    """Base request model that requires a target."""
+
+    target: str = Field(..., description="Target ID for the traffic generator")
+
+
+class ConfigRequest(TargetRequest):
+    """Request model for configuration operations."""
+
+    config: Dict[str, Any] = Field(..., description="Traffic generator configuration")
+
+
+class NamedRequest(TargetRequest):
+    """Request model for operations that target a specific named entity."""
+
+    name: str = Field(..., description="Name of the entity (port, flow, etc.)")
+
+
+@dataclass
+class OtgClient:
+    """
+    Client for OTG traffic generator operations using snappi.
+
+    This client provides a unified interface for all traffic generator operations,
+    handling target resolution, API version differences, and client caching.
+    """
+
+    config: Config
+    api_clients: Dict[str, Any] = field(default_factory=dict)
+    _schema_registry: Any = field(default=None, init=False)
+
+    def __post_init__(self):
+        """Initialize after dataclass initialization."""
+        logger.info("Initializing OTG client")
+        self._schema_registry = get_schema_registry()
+        logger.info("OTG client initialized")
+
+    def _get_api_client(self, target: str):
+        """
+        Get or create API client for target.
+
+        Args:
+            target: Target ID (required)
+
+        Returns:
+            Tuple of (snappi API client, API capabilities dict)
+        """
+        logger.info(f"Getting API client for target {target}")
+
+        logger.info(f"Checking if client is cached for target {target}")
+        if target in self.api_clients:
+            logger.info(f"Using cached API client for target {target}")
+            return self.api_clients[target]
+
+        logger.info(f"Resolving location for target {target}")
+        location = self._get_location_for_target(target)
+        logger.info(f"Target {target} resolved to location {location}")
+
+        logger.info(f"Creating new snappi API client for {location}")
+        api = snappi.api(location=location, verify=False)
+
+        logger.info("Detecting API capabilities through schema introspection")
+        api_schema = self._discover_api_schema(api)
+        logger.info(f"API schema detected: version={api_schema['version']}")
+
+        logger.info(f"Caching client for target {target}")
+        self.api_clients[target] = api
+
+        return api
+
+    def _get_location_for_target(self, target: str) -> str:
+        """
+        Get location string for target.
+
+        Args:
+            target: Target ID
+
+        Returns:
+            Location string for snappi client
+        """
+        logger.info(f"Creating URL for direct connection to target {target}")
+        return f"https://{target}" if ":" not in target else f"https://{target}"
+
+    def _discover_api_schema(self, api) -> Dict[str, Any]:
+        """
+        Discover API capabilities through introspection.
+
+        Args:
+            api: Snappi API client
+
+        Returns:
+            Dictionary of API capabilities
+        """
+        logger.info("Getting all available API methods through introspection")
+        methods = [
+            m for m in dir(api) if not m.startswith("_") and callable(getattr(api, m))
+        ]
+
+        logger.info("Detecting API version and capabilities")
+        schema = {
+            "methods": methods,
+            "version": self._get_api_version(api),
+            "has_control_state": hasattr(api, "control_state"),
+            "has_transmit_state": hasattr(api, "transmit_state"),
+            "has_start_transmit": hasattr(api, "start_transmit"),
+            "has_stop_transmit": hasattr(api, "stop_transmit"),
+            "has_set_flow_transmit": hasattr(api, "set_flow_transmit"),
+        }
+
+        return schema
+
+    def _get_api_version(self, api) -> str:
+        """
+        Get the API version.
+
+        Args:
+            api: Snappi API client
+
+        Returns:
+            API version string
+        """
+        if hasattr(api, "__version__"):
+            return str(api.__version__)
+        elif hasattr(snappi, "__version__"):
+            return str(snappi.__version__)
+        return "unknown"
+
+    def _start_traffic(self, api) -> None:
+        """
+        Start traffic using the appropriate method based on API version.
+
+        Args:
+            api: Snappi API client
+        """
+        logger.info("Starting traffic generation")
+
+        if hasattr(api, "start_transmit"):
+            logger.info("Using start_transmit() method")
+            api.start_transmit()
+        elif hasattr(api, "set_flow_transmit"):
+            logger.info("Using set_flow_transmit() method")
+            api.set_flow_transmit(state="start")
+        elif hasattr(api, "control_state"):
+            logger.info("Using control_state() method")
+            self._start_traffic_control_state(api)
+        else:
+            raise NotImplementedError("No method available to start traffic")
+
+    def _start_traffic_control_state(self, api) -> None:
+        """
+        Start traffic using control_state API.
+
+        Args:
+            api: Snappi API client
+        """
+        cs = api.control_state()
+        cs.choice = cs.TRAFFIC
+
+        if not hasattr(cs, "traffic"):
+            raise AttributeError("control_state object does not have traffic attribute")
+
+        cs.traffic.choice = cs.traffic.FLOW_TRANSMIT
+
+        if not hasattr(cs.traffic, "flow_transmit"):
+            raise AttributeError("traffic object does not have flow_transmit attribute")
+
+        logger.debug("Handling different versions of control_state API")
+        if hasattr(cs.traffic.flow_transmit, "START"):
+            cs.traffic.flow_transmit.state = cs.traffic.flow_transmit.START
+        else:
+            cs.traffic.flow_transmit.state = "start"
+
+        api.set_control_state(cs)
+
+    def _stop_traffic(self, api) -> bool:
+        """
+        Stop traffic using the appropriate method based on API version.
+
+        Args:
+            api: Snappi API client
+
+        Returns:
+            True if traffic was successfully stopped, False otherwise
+        """
+        logger.info("Stopping traffic generation")
+
+        methods = [
+            self._stop_traffic_direct,
+            self._stop_traffic_transmit,
+            self._stop_traffic_control_state,
+            self._stop_traffic_flow_transmit,
+        ]
+
+        for method in methods:
+            try:
+                method(api)
+                logger.info(f"Successfully stopped traffic using {method.__name__}")
+                return self._verify_traffic_stopped(api)
+            except Exception as e:
+                logger.info(f"Failed to stop traffic using {method.__name__}: {e}")
+                continue
+
+        logger.warning("All methods to stop traffic failed")
+        return False
+
+    def _stop_traffic_direct(self, api) -> None:
+        """
+        Stop traffic using stop_transmit method.
+
+        Args:
+            api: Snappi API client
+        """
+        if not hasattr(api, "stop_transmit"):
+            raise AttributeError("stop_transmit method not available")
+        api.stop_transmit()
+
+    def _stop_traffic_transmit(self, api) -> None:
+        """
+        Stop traffic using transmit_state method.
+
+        Args:
+            api: Snappi API client
+        """
+        if not hasattr(api, "transmit_state"):
+            raise AttributeError("transmit_state method not available")
+        ts = api.transmit_state()
+        ts.state = ts.STOP
+        api.set_transmit_state(ts)
+
+    def _stop_traffic_control_state(self, api) -> None:
+        """
+        Stop traffic using control_state method.
+
+        Args:
+            api: Snappi API client
+        """
+        if not hasattr(api, "control_state"):
+            raise AttributeError("control_state method not available")
+
+        cs = api.control_state()
+        cs.choice = cs.TRAFFIC
+
+        if not hasattr(cs, "traffic"):
+            raise AttributeError("control_state object does not have traffic attribute")
+
+        cs.traffic.choice = cs.traffic.FLOW_TRANSMIT
+
+        if not hasattr(cs.traffic, "flow_transmit"):
+            raise AttributeError("traffic object does not have flow_transmit attribute")
+
+        logger.debug(
+            "Handling different versions of control_state API for stopping traffic"
+        )
+        if hasattr(cs.traffic.flow_transmit, "STOP"):
+            cs.traffic.flow_transmit.state = cs.traffic.flow_transmit.STOP
+        else:
+            cs.traffic.flow_transmit.state = "stop"
+
+        api.set_control_state(cs)
+
+    def _stop_traffic_flow_transmit(self, api) -> None:
+        """
+        Stop traffic using set_flow_transmit method.
+
+        Args:
+            api: Snappi API client
+        """
+        if not hasattr(api, "set_flow_transmit"):
+            raise AttributeError("set_flow_transmit method not available")
+        api.set_flow_transmit(state="stop")
+
+    def _verify_traffic_stopped(self, api, timeout=5, threshold=0.1) -> bool:
+        """
+        Verify that traffic has actually stopped by checking metrics.
+
+        Args:
+            api: Snappi API client
+            timeout: Maximum time in seconds to wait
+            threshold: Threshold below which traffic is considered stopped
+
+        Returns:
+            True if traffic is stopped, False otherwise
+        """
+        logger.info(f"Verifying traffic has stopped (timeout={timeout}s)")
+
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                logger.debug("Getting flow metrics")
+                request = api.metrics_request()
+                metrics = api.get_metrics(request)
+
+                logger.debug("Checking if there are any flow metrics")
+                if (
+                    not hasattr(metrics, "flow_metrics")
+                    or len(metrics.flow_metrics) == 0
+                ):
+                    logger.info(
+                        "No flow metrics available, assuming traffic is stopped"
+                    )
+                    return True
+
+                logger.debug("Checking if all flows have stopped")
+                all_stopped = True
+                for flow in metrics.flow_metrics:
+                    if (
+                        hasattr(flow, "frames_tx_rate")
+                        and flow.frames_tx_rate >= threshold
+                    ):
+                        logger.info(
+                            f"Flow {getattr(flow, 'name', 'unknown')} still running with rate {flow.frames_tx_rate}"
+                        )
+                        all_stopped = False
+                        break
+
+                if all_stopped:
+                    logger.info("All flows verified stopped")
+                    return True
+            except Exception as e:
+                logger.warning(f"Error checking traffic status: {str(e)}")
+
+            time.sleep(0.5)
+
+        logger.warning(f"Timed out waiting for traffic to stop after {timeout}s")
+        return False
+
+    def _get_metrics(self, api, flow_names=None, port_names=None):
+        """
+        Get metrics from the API.
+
+        Args:
+            api: Snappi API client
+            flow_names: Optional list of flow names
+            port_names: Optional list of port names
+
+        Returns:
+            Metrics object
+        """
+        request = api.metrics_request()
+
+        if flow_names:
+            request.flow.flow_names = flow_names
+
+        if port_names:
+            request.port.port_names = port_names
+
+        return api.get_metrics(request)
+
+    def _start_capture(self, api, port_name):
+        """
+        Start packet capture on a port.
+
+        Args:
+            api: Snappi API client
+            port_name: Name of port to capture on
+        """
+        request = api.capture_request()
+        request.port_name = port_name
+        api.start_capture(request)
+
+    def _stop_capture(self, api, port_name):
+        """
+        Stop packet capture on a port.
+
+        Args:
+            api: Snappi API client
+            port_name: Name of port to stop capture on
+
+        Returns:
+            Capture response object
+        """
+        request = api.capture_request()
+        request.port_name = port_name
+        return api.stop_capture(request)
+
+    async def get_traffic_generators_status(self):
+        """Legacy method that maps to list_traffic_generators."""
+        logger.info("Legacy call to get_traffic_generators_status")
+        return await self.list_traffic_generators()
+
+    async def set_config(
+        self, config: Dict[str, Any], target: Optional[str] = None
+    ) -> ConfigResponse:
+        """
+        Set configuration on traffic generator and retrieve the applied configuration.
+
+        Args:
+            config: Configuration to set
+            target: Optional target ID
+
+        Returns:
+            Configuration response containing the applied configuration
+        """
+        logger.info(f"Setting configuration on target {target or 'default'}")
+
+        try:
+            logger.info(f"Getting API client for {target or 'localhost'}")
+            api = self._get_api_client(target or "localhost")
+
+            logger.info("Processing config based on type")
+            if isinstance(config, dict):
+                logger.info("Deserializing config dictionary")
+                cfg = api.config()
+                cfg.deserialize(config)
+                api.set_config(cfg)
+            else:
+                logger.info("Using config object directly")
+                api.set_config(config)
+
+            logger.info("Retrieving the applied configuration")
+            config = api.get_config()
+            logger.info("Serializing retrieved config to dictionary")
+            logger.debug("Using config directly for serialization")
+            config_dict = config.serialize(encoding=config.DICT)  # type: ignore
+
+            return ConfigResponse(status="success", config=config_dict)
+        except Exception as e:
+            logger.error(f"Error setting configuration: {e}")
+            logger.error(traceback.format_exc())
+            return ConfigResponse(status="error", config={"error": str(e)})
+
+    async def get_config(self, target: Optional[str] = None) -> ConfigResponse:
+        """
+        Get configuration from traffic generator.
+
+        Args:
+            target: Optional target ID
+
+        Returns:
+            Configuration response
+        """
+        logger.info(f"Getting configuration from target {target or 'default'}")
+
+        try:
+            logger.info(f"Getting API client for {target or 'localhost'}")
+            api = self._get_api_client(target or "localhost")
+
+            logger.info("Getting configuration from device")
+            config = api.get_config()
+
+            logger.info("Serializing config to dictionary")
+            logger.debug("Using config directly for serialization")
+            config_dict = config.serialize(encoding=config.DICT)  # type: ignore
+
+            return ConfigResponse(status="success", config=config_dict)
+        except Exception as e:
+            logger.error(f"Error getting configuration: {e}")
+            logger.error(traceback.format_exc())
+            return ConfigResponse(status="error", config={"error": str(e)})
+
+    async def start_traffic(self, target: Optional[str] = None) -> ControlResponse:
+        """
+        Start traffic generation.
+
+        Args:
+            target: Optional target ID
+
+        Returns:
+            Control response
+        """
+        logger.info(f"Starting traffic on target {target or 'default'}")
+
+        try:
+            logger.info(f"Getting API client for {target or 'localhost'}")
+            api = self._get_api_client(target or "localhost")
+
+            logger.info("Starting traffic on device")
+            self._start_traffic(api)
+
+            return ControlResponse(status="success", action="traffic_generation")
+        except Exception as e:
+            logger.error(f"Error starting traffic: {e}")
+            logger.error(traceback.format_exc())
+            return ControlResponse(
+                status="error", action="traffic_generation", result={"error": str(e)}
+            )
+
+    async def stop_traffic(self, target: Optional[str] = None) -> ControlResponse:
+        """
+        Stop traffic generation.
+
+        Args:
+            target: Target ID
+
+        Returns:
+            Control response
+        """
+        logger.info(f"Stopping traffic on target {target or 'default'}")
+
+        try:
+            logger.info(f"Getting API client for {target or 'localhost'}")
+            api = self._get_api_client(target or "localhost")
+
+            logger.info("Stopping traffic on device")
+            success = self._stop_traffic(api)
+
+            return ControlResponse(
+                status="success",
+                action="traffic_generation",
+                result={"verified": success},
+            )
+        except Exception as e:
+            logger.error(f"Error stopping traffic: {e}")
+            logger.error(traceback.format_exc())
+            return ControlResponse(
+                status="error", action="traffic_generation", result={"error": str(e)}
+            )
+
+    async def start_capture(
+        self, port_name: str, target: Optional[str] = None
+    ) -> CaptureResponse:
+        """
+        Start packet capture on a port.
+
+        Args:
+            port_name: Name of port
+            target: Optional target ID
+
+        Returns:
+            Capture response
+        """
+        logger.info(
+            f"Starting capture on port {port_name} on target {target or 'default'}"
+        )
+
+        try:
+            logger.info(f"Getting API client for {target or 'localhost'}")
+            api = self._get_api_client(target or "localhost")
+
+            logger.info(f"Starting capture on port {port_name}")
+            self._start_capture(api, port_name)
+
+            return CaptureResponse(status="success", port=port_name)
+        except Exception as e:
+            logger.error(f"Error starting capture: {e}")
+            logger.error(traceback.format_exc())
+            return CaptureResponse(
+                status="error", port=port_name, data={"error": str(e)}
+            )
+
+    async def stop_capture(
+        self, port_name: str, target: Optional[str] = None
+    ) -> CaptureResponse:
+        """
+        Stop packet capture on a port.
+
+        Args:
+            port_name: Name of port
+            target: Optional target ID
+
+        Returns:
+            Capture response
+        """
+        logger.info(
+            f"Stopping capture on port {port_name} on target {target or 'default'}"
+        )
+
+        try:
+            logger.info(f"Getting API client for {target or 'localhost'}")
+            api = self._get_api_client(target or "localhost")
+
+            logger.info(f"Stopping capture on port {port_name}")
+            response = self._stop_capture(api, port_name)
+
+            logger.info("Processing capture response")
+            try:
+                data = response.serialize(encoding=response.DICT)  # type: ignore
+            except Exception as e:
+                logger.info(
+                    f"Error serializing capture response: {e}, using default status"
+                )
+                data = {"status": "stopped"}
+
+            return CaptureResponse(status="success", port=port_name, data=data)
+        except Exception as e:
+            logger.error(f"Error stopping capture: {e}")
+            logger.error(traceback.format_exc())
+            return CaptureResponse(
+                status="error", port=port_name, data={"error": str(e)}
+            )
+
+    async def list_traffic_generators(self) -> TrafficGeneratorStatus:
+        """
+        List all available traffic generators.
+
+        Returns:
+            TrafficGeneratorStatus containing all traffic generators
+        """
+        logger.info("Listing all traffic generators")
+
+        try:
+            result = TrafficGeneratorStatus()
+
+            logger.info("Getting targets from config")
+            for hostname, target_config in self.config.targets.targets.items():
+                logger.info(f"Adding target {hostname} to list")
+
+                logger.info(f"Creating generator info for {hostname}")
+                gen_info = TrafficGeneratorInfo(hostname=hostname)
+
+                logger.info(f"Adding port configurations for {hostname}")
+                for port_name, port_config in target_config.ports.items():
+                    location = port_config.location or ""  # Ensure location is not None
+                    gen_info.ports[port_name] = PortInfo(
+                        name=port_name, location=location, interface=None
+                    )
+
+                logger.info(f"Testing connection to {hostname}")
+                try:
+                    logger.info("Simple availability check")
+                    gen_info.available = True
+                except Exception as e:
+                    logger.warning(f"Error connecting to {hostname}: {e}")
+                    gen_info.available = False
+
+                logger.info(f"Adding {hostname} to result")
+                result.generators[hostname] = gen_info
+
+            return result
+        except Exception as e:
+            logger.error(f"Error listing traffic generators: {e}")
+            logger.error(traceback.format_exc())
+            return TrafficGeneratorStatus()
+
+    async def get_available_targets(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get all available traffic generator targets with comprehensive information.
+
+        Provides a combined view of target configurations and availability status:
+        - Technical configuration (apiVersion, ports)
+        - Availability information (whether target is reachable)
+        - Additional metadata
+
+        This method always clears the client cache to ensure fresh connections.
+
+        Returns:
+            Dictionary mapping target names to their configurations, including:
+            - apiVersion: Schema version to use for the target
+            - ports: Port configurations for the target
+            - available: Whether the target is currently reachable
+        """
+        logger.info("Getting available traffic generator targets")
+
+        logger.info("Clearing client cache to force reconnection")
+        self.api_clients.clear()
+
+        result = {}
+        try:
+            logger.info("Reading targets from config")
+            for target_name, target_config in self.config.targets.targets.items():
+                logger.info(f"Processing target: {target_name}")
+
+                target_dict = {
+                    "apiVersion": target_config.apiVersion,
+                    "ports": {},
+                    "available": False,
+                }
+
+                for port_name, port_config in target_config.ports.items():
+                    target_dict["ports"][port_name] = {  # type: ignore
+                        "location": port_config.location,
+                        "name": port_config.name,
+                    }
+
+                logger.info(f"Testing connection to {target_name}")
+                try:
+                    self._get_api_client(target_name)
+                    logger.debug("Testing availability of the target")
+                    target_dict["available"] = True
+                    logger.info(f"Target {target_name} is available")
+                except Exception as e:
+                    logger.warning(f"Error connecting to {target_name}: {e}")
+                    target_dict["available"] = False
+                    target_dict["error"] = str(e)
+
+                result[target_name] = target_dict  # type: ignore
+
+            logger.info(
+                f"Found {len(result)} targets, {sum(1 for t in result.values() if t['available'])} available"
+            )
+            return result
+        except Exception as e:
+            logger.error(f"Error getting available targets: {e}")
+            logger.error(traceback.format_exc())
+            return {}
+
+    async def _get_target_config(self, target_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get configuration for a specific target (internal method).
+
+        Args:
+            target_name: Name of the target to look up
+
+        Returns:
+            Target configuration including apiVersion and ports,
+            or None if the target doesn't exist
+        """
+        logger.info(f"Looking up configuration for target: {target_name}")
+
+        try:
+            targets = await self.get_available_targets()
+
+            if target_name in targets:
+                logger.info(f"Found configuration for target: {target_name}")
+                return targets[target_name]
+
+            logger.warning(f"Target not found: {target_name}")
+            return None
+        except Exception as e:
+            logger.error(f"Error looking up target {target_name}: {e}")
+            logger.error(traceback.format_exc())
+            return None
+
+    async def get_schemas_for_target(
+        self, target_name: str, schema_names: List[str]
+    ) -> Dict[str, Any]:
+        """
+        Get multiple schemas for a specific target.
+
+        Args:
+            target_name: Name of the target
+            schema_names: List of schema names/components to retrieve (e.g., ["Flow", "Port"] or
+                         ["components.schemas.Flow", "components.schemas.Port"])
+
+        Returns:
+            Dictionary mapping schema names to their content
+
+        Raises:
+            ValueError: If the target doesn't exist or schemas couldn't be loaded
+        """
+        logger.info(
+            f"Getting schemas for target {target_name}, schemas: {schema_names}"
+        )
+
+        target_config = await self._get_target_config(target_name)
+        if not target_config:
+            error_msg = f"Target {target_name} not found"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        api_version = target_config["apiVersion"]
+        logger.info(f"Using API version {api_version} for target {target_name}")
+
+        result = {}
+        try:
+            registry = get_schema_registry()
+            for schema_name in schema_names:
+                logger.info(f"Retrieving schema {schema_name} for target {target_name}")
+                try:
+
+                    if "." not in schema_name or not schema_name.startswith(
+                        "components.schemas."
+                    ):
+                        qualified_name = f"components.schemas.{schema_name}"
+                        logger.info(f"Interpreting {schema_name} as {qualified_name}")
+                        result[schema_name] = registry.get_schema(
+                            api_version, qualified_name
+                        )
+                    else:
+
+                        result[schema_name] = registry.get_schema(
+                            api_version, schema_name
+                        )
+                except Exception as e:
+                    logger.warning(f"Error retrieving schema {schema_name}: {str(e)}")
+                    result[schema_name] = {"error": str(e)}
+
+            return result
+        except Exception as e:
+            error_msg = f"Error getting schemas for target {target_name}: {str(e)}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+    async def list_schemas_for_target(self, target_name: str) -> List[str]:
+        """
+        List available schemas for a specific target's API version.
+
+        This method returns only the components.schemas entries from the schema,
+        focusing solely on the available schemas without including other structural
+        information like top-level keys, paths, or other components.
+
+        Args:
+            target_name: Name of the target
+
+        Returns:
+            List of available schema names under components.schemas
+
+        Raises:
+            ValueError: If the target doesn't exist
+        """
+        logger.info(f"Listing schemas for target {target_name}")
+
+        target_config = await self._get_target_config(target_name)
+        if not target_config:
+            error_msg = f"Target {target_name} not found"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        api_version = target_config["apiVersion"]
+        logger.info(f"Using API version {api_version} for target {target_name}")
+
+        try:
+            registry = get_schema_registry()
+            schema = registry.get_schema(api_version)
+
+            if (
+                "components" in schema
+                and isinstance(schema["components"], dict)
+                and "schemas" in schema["components"]
+                and isinstance(schema["components"]["schemas"], dict)
+            ):
+
+                result = list(schema["components"]["schemas"].keys())
+                logger.info(f"Extracted {len(result)} schema keys")
+                return result
+            else:
+                logger.warning("No components.schemas found in the schema")
+                return []
+        except Exception as e:
+            error_msg = (
+                f"Error listing schema structure for target {target_name}: {str(e)}"
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+    async def get_target_version(self, target: str) -> CapabilitiesVersionResponse:
+        """
+        Get version information from a target's capabilities/version endpoint.
+
+        Args:
+            target: Target hostname or IP
+
+        Returns:
+            CapabilitiesVersionResponse containing version information
+
+        Raises:
+            ValueError: If the request fails
+        """
+        logger.info(f"Getting version information from target {target}")
+
+        url = f"https://{target}/capabilities/version"
+        logger.info(f"Making request to {url}")
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, ssl=False) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    logger.info(f"Received version data: {data}")
+                    return CapabilitiesVersionResponse(**data)
+                else:
+                    error_msg = (
+                        f"Failed to get version from {target}: {response.status}"
+                    )
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+
+    async def get_schema_components_for_target(
+        self, target_name: str, path_prefix: str = "components.schemas"
+    ) -> List[str]:
+        """
+        Get a list of schema component names for a specific target's API version.
+
+        Args:
+            target_name: Name of the target
+            path_prefix: The path prefix to look in (default: "components.schemas")
+
+        Returns:
+            List of component names
+
+        Raises:
+            ValueError: If the target doesn't exist or path doesn't exist
+        """
+        logger.info(
+            f"Getting schema components for target {target_name} with prefix {path_prefix}"
+        )
+
+        target_config = await self._get_target_config(target_name)
+        if not target_config:
+            error_msg = f"Target {target_name} not found"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        api_version = target_config["apiVersion"]
+        logger.info(f"Using API version {api_version} for target {target_name}")
+
+        try:
+            registry = get_schema_registry()
+            return registry.get_schema_components(api_version, path_prefix)
+        except Exception as e:
+            error_msg = (
+                f"Error getting schema components for target {target_name}: {str(e)}"
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+    async def health(self, target: Optional[str] = None) -> HealthStatus:
+        """
+        Check health of traffic generator system by verifying version endpoints.
+
+        Args:
+            target: Optional target to check. If None, checks all targets.
+
+        Returns:
+            HealthStatus: Collection of target health information
+        """
+        logger.info(f"Checking health of {target or 'all targets'}")
+
+        health_status = HealthStatus(
+            status="success"
+        )  # Initialize with required status field
+
+        try:
+            target_names = []
+            if target:
+                logger.info(f"Checking specific target: {target}")
+                target_names = [target]
+            else:
+                logger.info("No specific target - checking all available targets")
+                targets = await self.get_available_targets()
+                target_names = list(targets.keys())
+                logger.info(f"Found {len(target_names)} targets to check")
+
+            logger.info("Beginning health checks for all targets")
+            for target_name in target_names:
+                logger.info(f"Checking health for target: {target_name}")
+                try:
+                    logger.info(f"Requesting version info from {target_name}")
+                    version_info = await self.get_target_version(target_name)
+
+                    logger.info(f"Target {target_name} is healthy")
+                    health_status.targets[target_name] = TargetHealthInfo(
+                        name=target_name,
+                        healthy=True,
+                        version_info=version_info,
+                        error=None,
+                    )
+
+                except Exception as e:
+                    logger.warning(f"Target {target_name} is unhealthy: {str(e)}")
+                    health_status.targets[target_name] = TargetHealthInfo(
+                        name=target_name, healthy=False, error=str(e), version_info=None
+                    )
+
+            logger.info(f"Health check complete for {len(target_names)} targets")
+            return health_status
+
+        except Exception as e:
+            logger.error(f"Health check failed with error: {str(e)}")
+            logger.error(traceback.format_exc())
+            return HealthStatus(targets={})
+
+    async def get_metrics(
+        self,
+        flow_names: Optional[Union[str, List[str]]] = None,
+        port_names: Optional[Union[str, List[str]]] = None,
+        target: Optional[str] = None,
+    ) -> MetricsResponse:
+        """
+        Get metrics from traffic generator.
+
+        This unified method handles all metrics retrieval cases:
+        - All metrics (flows and ports): call with no parameters
+        - All flow metrics: call with flow_names=[]
+        - Specific flow(s): call with flow_names="flow1" or flow_names=["flow1", "flow2"]
+        - All port metrics: call with port_names=[]
+        - Specific port(s): call with port_names="port1" or port_names=["port1", "port2"]
+        - Combination: call with both flow_names and port_names
+
+        Args:
+            flow_names: Optional flow name(s) to get metrics for:
+                - None: Flow metrics not specifically requested
+                - Empty list: All flow metrics
+                - str: Single flow metrics
+                - List[str]: Multiple flow metrics
+            port_names: Optional port name(s) to get metrics for:
+                - None: Port metrics not specifically requested
+                - Empty list: All port metrics
+                - str: Single port metrics
+                - List[str]: Multiple port metrics
+            target: Optional target ID
+
+        Returns:
+            Metrics response containing requested metrics
+        """
+        logger.info(f"Getting metrics from target {target or 'default'}")
+
+        try:
+            logger.info(f"Getting API client for {target or 'localhost'}")
+            api = self._get_api_client(target or "localhost")
+
+            flow_name_list = None
+            if flow_names is not None:
+                if isinstance(flow_names, str):
+                    logger.info(f"Getting metrics for flow: {flow_names}")
+                    flow_name_list = [flow_names]
+                else:
+                    if flow_names:
+                        logger.info(f"Getting metrics for flows: {flow_names}")
+                    else:
+                        logger.info("Getting metrics for all flows")
+                    flow_name_list = flow_names
+
+            port_name_list = None
+            if port_names is not None:
+                if isinstance(port_names, str):
+                    logger.info(f"Getting metrics for port: {port_names}")
+                    port_name_list = [port_names]
+                else:
+                    if port_names:
+                        logger.info(f"Getting metrics for ports: {port_names}")
+                    else:
+                        logger.info("Getting metrics for all ports")
+                    port_name_list = port_names
+
+            if flow_name_list is None and port_name_list is None:
+                logger.info("Getting all metrics (no specific filters)")
+                metrics = self._get_metrics(api)
+            else:
+                logger.info(
+                    f"Calling _get_metrics with flow_names={flow_name_list}, port_names={port_name_list}"
+                )
+                metrics = self._get_metrics(
+                    api, flow_names=flow_name_list, port_names=port_name_list
+                )
+
+            logger.info("Serializing metrics to dictionary")
+            logger.debug("Using metrics directly for serialization")
+            metrics_dict = metrics.serialize(encoding=metrics.DICT)  # type: ignore
+
+            return MetricsResponse(status="success", metrics=metrics_dict)
+        except Exception as e:
+            logger.error(f"Error getting metrics: {e}")
+            logger.error(traceback.format_exc())
+            return MetricsResponse(status="error", metrics={"error": str(e)})

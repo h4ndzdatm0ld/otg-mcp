@@ -1,0 +1,161 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "otg-mcp"
+version = "1.0"
+readme = "README.md"
+description = "Open Traffic Generator - Model Context Protocol"
+authors = [
+  {name = "OTG MCP Contributors"}
+]
+dependencies = [
+  "fastmcp>=2.2.5",
+  "modelcontextprotocol>=0.1.0",
+  "pydantic>=2.0.0",
+  "pydantic-settings>=2.0.0",
+  "httpx>=0.24.1",
+  "tenacity>=8.2.2",
+  "snappi>=1.28.2",
+  "mcp[cli]>=1.6.0",
+  "types-pyyaml>=6.0.12.20250516",
+]
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+dev = [
+  "openapi-python-client>=0.14.0",
+  "black>=25.1.0",
+  "ruff>=0.11.7",
+  "mypy>=1.0.0",
+  "pip>=25.1.1",
+]
+
+test = [
+  "pytest>=7.0.0",
+  "pytest-cov>=4.0.0",
+  "pytest-asyncio>=0.21.0",
+]
+
+all = [
+  "otg-mcp[dev,test]"
+]
+
+[tool.hatch.envs.default]
+# This controls what version of Python you want to be the default
+# when running any scripts or tools to do things like debug test failures
+# or do general development.  It's lockfile is ./requirements.txt
+python = "3.12"
+features = ["dev"]
+dependencies = []
+
+[tool.hatch.envs.test]
+dependencies = [
+    "mypy>=1.0.0",
+    "snappi>=1.28.2",
+]
+features = ["test"]
+template = "default"
+
+[tool.hatch.envs.hatch-test]
+dependencies = []
+features = ["test"]
+template = "default"
+
+[tool.pytest.ini_options]
+addopts = "--durations=5 --color=yes --cov --cov-report=term --cov-report=html --cov-report=xml"
+testpaths = [ "tests" ]
+asyncio_mode = "strict"
+
+[tool.coverage.run]
+source_pkgs = ["otg_mcp"]
+branch = true
+parallel = true
+
+[tool.coverage.paths]
+"otg_mcp" = ["src/otg_mcp", "**/site-packages/otg_mcp"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "no cov",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
+show_missing = true
+# fail_under = 99
+
+[tool.coverage.xml]
+output = "coverage/coverage.xml"
+
+[tool.coverage.html]
+directory = "coverage/"
+
+[tool.ruff.lint]
+isort.known-first-party = ["otg_mcp"]
+exclude = [ "./build", ".hatch", "private" ]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests can use magic values, assertions, and relative imports
+"tests/**/*" = ["PLR2004", "S101", "TID252"]
+
+[tool.hatch.build]
+directory = "./build"
+
+[tool.hatch.env]
+requires = [ "hatch-pip-compile" ]
+
+[tool.hatch.envs.default.scripts]
+# These are scripts you can run using `hatch run <script-name>`
+typing = [
+  "mkdir -p .mypy_cache",
+  # "mypy --install-types --non-interactive src/otg_mcp tests"
+]
+
+# This command is for updating all your lock files across all environments 
+update = [ "hatch-pip-compile --upgrade --all" ]
+
+release = [
+    "typing",
+    "hatch run test:pytest --cov=otg_mcp --cov-report=term --cov-report=html --cov-report=xml tests/",
+]
+
+[[tool.hatch.envs.hatch-test.matrix]]
+# This defines multiple variables you can generate combinations
+# to test underneath different environments.  A separate environment and 
+# lock file will be created for every combination located in `./requirements/`
+python = ["3.11", "3.12"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/otg_mcp"]
+
+[tool.hatch.envs.hatch-test.scripts]
+test = "pytest {args}"
+cov-report = "coverage report"
+
+## This environment is used solely to generate a lock file on hatch,
+# and hatch-pip-compile that can be automatically updated
+[tool.hatch.envs.build-tools]
+# This version states what version your build tools build with.  To change it,
+# you will need to:
+# * Remove the `requirements/requirements-build-tools.txt` file
+# * Run `hatch-pip-compile --upgrade --all` to generate a new lock file for the environment
+python = "3.12"
+detached = true
+skip-install = true
+features = ["dev"]
+dependencies = [
+  "hatch-pip-compile",
+]
+
+# Custom repository and package locking plugin
+[tool.hatch.env.collectors.custom]
+path = ".hatch/hatch_plugin.py"
+
+# This is necessary to use 'uv' as the resolver if this is the top-level package
+# in a monorepo (which is usually the case).  Remove this if copying the
+# package into a monorepo
+[tool.uv.workspace]
