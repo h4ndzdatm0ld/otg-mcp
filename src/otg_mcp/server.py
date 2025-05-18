@@ -8,7 +8,7 @@ import argparse
 import logging
 import sys
 import traceback
-from typing import Any, Annotated, Dict, List, Literal, Optional, Union
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from fastmcp import FastMCP
 from pydantic import Field
@@ -78,7 +78,9 @@ class OtgMcpServer:
             if attr_name.startswith("tool_"):
                 method = getattr(self, attr_name)
                 tool_name = attr_name[5:]
-                logger.debug(f"Found tool method: {attr_name}, registering as: {tool_name}")
+                logger.debug(
+                    f"Found tool method: {attr_name}, registering as: {tool_name}"
+                )
                 logger.info(f"Registering tool: {tool_name}")
                 self.mcp.add_tool(method, name=tool_name)
                 count += 1

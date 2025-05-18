@@ -2,17 +2,17 @@
 
 from .models import (
     ApiResponse,
+    CapabilitiesVersionResponse,
     CaptureResponse,
     ConfigResponse,
     ControlResponse,
+    HealthStatus,
     MetricsResponse,
-    SnappiError,
     PortInfo,
+    SnappiError,
+    TargetHealthInfo,
     TrafficGeneratorInfo,
     TrafficGeneratorStatus,
-    CapabilitiesVersionResponse,
-    HealthStatus,
-    TargetHealthInfo,
 )
 
 __all__ = [

@@ -5,20 +5,20 @@ This simplified client provides a single entry point for traffic generator opera
 using snappi API directly, with proper target management and version detection.
 """
 
-import aiohttp
 import logging
 import time
 import traceback
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Dict, List, Optional, Union
 
+import aiohttp
 import snappi  # type: ignore
 from pydantic import BaseModel, Field
 
 from otg_mcp.config import Config
 from otg_mcp.models import (
-    CaptureResponse,
     CapabilitiesVersionResponse,
+    CaptureResponse,
     ConfigResponse,
     ControlResponse,
     HealthStatus,
@@ -446,9 +446,8 @@ class OtgClient:
             logger.info("Retrieving the applied configuration")
             config = api.get_config()
             logger.info("Serializing retrieved config to dictionary")
-            logger.debug("Casting config to Any type to handle dynamic attributes")
-            config_obj = cast(Any, config)
-            config_dict = config_obj.serialize(encoding=config_obj.DICT)
+            logger.debug("Using config directly for serialization")
+            config_dict = config.serialize(encoding=config.DICT)  # type: ignore
 
             return ConfigResponse(status="success", config=config_dict)
         except Exception as e:
@@ -476,9 +475,8 @@ class OtgClient:
             config = api.get_config()
 
             logger.info("Serializing config to dictionary")
-            logger.debug("Casting config to Any type to handle dynamic attributes")
-            config_obj = cast(Any, config)
-            config_dict = config_obj.serialize(encoding=config_obj.DICT)
+            logger.debug("Using config directly for serialization")
+            config_dict = config.serialize(encoding=config.DICT)  # type: ignore
 
             return ConfigResponse(status="success", config=config_dict)
         except Exception as e:
@@ -602,8 +600,7 @@ class OtgClient:
 
             logger.info("Processing capture response")
             try:
-                response_obj = cast(Any, response)  # Cast to Any to handle dynamic attributes
-                data = response_obj.serialize(encoding=response_obj.DICT)
+                data = response.serialize(encoding=response.DICT)  # type: ignore
             except Exception as e:
                 logger.info(
                     f"Error serializing capture response: {e}, using default status"
@@ -704,8 +701,7 @@ class OtgClient:
                 logger.info(f"Testing connection to {target_name}")
                 try:
                     self._get_api_client(target_name)
-                    logger.debug("Casting to a properly typed object to handle dynamic attributes")
-                    api_client = cast(Any, self._get_api_client(target_name))
+                    logger.debug("Testing availability of the target")
                     target_dict["available"] = True
                     logger.info(f"Target {target_name} is available")
                 except Exception as e:
@@ -945,7 +941,9 @@ class OtgClient:
         """
         logger.info(f"Checking health of {target or 'all targets'}")
 
-        health_status = HealthStatus(status="success")  # Initialize with required status field
+        health_status = HealthStatus(
+            status="success"
+        )  # Initialize with required status field
 
         try:
             target_names = []
@@ -967,7 +965,10 @@ class OtgClient:
 
                     logger.info(f"Target {target_name} is healthy")
                     health_status.targets[target_name] = TargetHealthInfo(
-                        name=target_name, healthy=True, version_info=version_info, error=None
+                        name=target_name,
+                        healthy=True,
+                        version_info=version_info,
+                        error=None,
                     )
 
                 except Exception as e:
@@ -1059,9 +1060,8 @@ class OtgClient:
                 )
 
             logger.info("Serializing metrics to dictionary")
-            logger.debug("Casting metrics to Any type to handle dynamic attributes")
-            metrics_obj = cast(Any, metrics)
-            metrics_dict = metrics_obj.serialize(encoding=metrics_obj.DICT)
+            logger.debug("Using metrics directly for serialization")
+            metrics_dict = metrics.serialize(encoding=metrics.DICT)  # type: ignore
 
             return MetricsResponse(status="success", metrics=metrics_dict)
         except Exception as e:
