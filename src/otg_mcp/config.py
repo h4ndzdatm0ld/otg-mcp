@@ -77,12 +77,11 @@ class PortConfig(BaseModel):
 class TargetConfig(BaseModel):
     """Configuration for a traffic generator target."""
 
-    apiVersion: str = Field(
-        default="1_30_0", description="API schema version to use for this target"
-    )
     ports: Dict[str, PortConfig] = Field(
         default_factory=dict, description="Port configurations mapped by port name"
     )
+
+    model_config = {"extra": "forbid", "strict": True}
 
 
 class TargetsConfig(BaseSettings):
@@ -169,11 +168,21 @@ class Config:
                     continue
 
                 logger.info(f"Creating target config for {hostname}")
-                api_version = target_data.get("apiVersion", "1.30.0")
-                logger.info(f"Target {hostname} using API version: {api_version}")
-                target_config = TargetConfig(apiVersion=api_version)
 
-                logger.info(f"Processing port configurations for {hostname}")
+                logger.info(
+                    "Validating no deprecated fields are present in target configuration"
+                )
+                if "apiVersion" in target_data:
+                    error_msg = (
+                        f"Invalid target configuration for {hostname}: apiVersion is no longer supported in target configuration. "
+                        f"The API version will be determined automatically from the device. "
+                        f"Please remove 'apiVersion': '{target_data['apiVersion']}' from your config file."
+                    )
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+
+                logger.info(f"Processing port data for target {hostname}")
+                ports_config = {}
                 if "ports" in target_data:
                     for port_name, port_data in target_data["ports"].items():
                         if not isinstance(port_data, dict):
@@ -192,13 +201,31 @@ class Config:
                         logger.debug(
                             f"Creating port config for {port_name} with location {port_data['location']}"
                         )
-                        target_config.ports[port_name] = PortConfig(
+                        ports_config[port_name] = PortConfig(
                             location=port_data["location"], name=name, interface=None
                         )
                 else:
                     logger.warning(
                         f"Target '{hostname}' does not contain a 'ports' dictionary"
                     )
+
+                logger.info(f"Creating validated target config for {hostname}")
+                try:
+                    logger.debug(
+                        "Using only validated port data for target config creation"
+                    )
+                    target_config = TargetConfig(ports=ports_config)
+                except Exception as e:
+                    error_msg = (
+                        f"Invalid target configuration for '{hostname}': {str(e)}"
+                    )
+                    logger.error(error_msg)
+                    if "extra fields not permitted" in str(e):
+                        logger.error(
+                            "The configuration contains fields that are not allowed. "
+                            "apiVersion should not be included in target configuration."
+                        )
+                    continue
 
                 logger.info(f"Adding target {hostname} to configuration")
                 self.targets.targets[hostname] = target_config

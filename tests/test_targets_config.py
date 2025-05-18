@@ -131,7 +131,9 @@ class TestAvailableTargets:
         assert "test-target.example.com:8443" in result
 
         target = result["test-target.example.com:8443"]
-        assert "apiVersion" in target
+        # API version may not be present if the connection to capabilities/version fails
+        # but we should either have apiVersion or apiVersionError
+        assert "apiVersionError" in target or "apiVersion" in target
         assert "ports" in target
         assert (
             target["available"] is True

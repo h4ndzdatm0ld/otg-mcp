@@ -32,6 +32,7 @@ from otg_mcp.schema_registry import get_schema_registry
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+
 @dataclass
 class OtgClient:
     """
@@ -643,17 +644,18 @@ class OtgClient:
         Get all available traffic generator targets with comprehensive information.
 
         Provides a combined view of target configurations and availability status:
-        - Technical configuration (apiVersion, ports)
+        - Technical configuration (ports)
         - Availability information (whether target is reachable)
+        - API version information (when available)
         - Additional metadata
 
         This method always clears the client cache to ensure fresh connections.
 
         Returns:
             Dictionary mapping target names to their configurations, including:
-            - apiVersion: Schema version to use for the target
             - ports: Port configurations for the target
             - available: Whether the target is currently reachable
+            - apiVersion: API version detected from the target (if available)
         """
         logger.info("Getting available traffic generator targets")
 
@@ -667,7 +669,6 @@ class OtgClient:
                 logger.info(f"Processing target: {target_name}")
 
                 target_dict = {
-                    "apiVersion": target_config.apiVersion,
                     "ports": {},
                     "available": False,
                 }
@@ -684,6 +685,21 @@ class OtgClient:
                     logger.debug("Testing availability of the target")
                     target_dict["available"] = True
                     logger.info(f"Target {target_name} is available")
+
+                    logger.info(
+                        f"Attempting to retrieve API version from target {target_name}"
+                    )
+                    try:
+                        version_info = await self.get_target_version(target_name)
+                        target_dict["apiVersion"] = version_info.api_spec_version
+                        logger.info(
+                            f"Detected API version {version_info.api_spec_version} for target {target_name}"
+                        )
+                    except Exception as version_error:
+                        logger.warning(
+                            f"Could not detect API version for {target_name}: {version_error}"
+                        )
+                        target_dict["apiVersionError"] = str(version_error)
                 except Exception as e:
                     logger.warning(f"Error connecting to {target_name}: {e}")
                     target_dict["available"] = False
@@ -700,6 +716,38 @@ class OtgClient:
             logger.error(traceback.format_exc())
             return {}
 
+    def _get_latest_schema_version(self) -> str:
+        """
+        Get the latest available schema version.
+
+        Finds all available schemas and returns the one with the highest version number.
+        Used as a fallback when target version can't be determined.
+
+        Returns:
+            The latest schema version in normalized format (e.g., "1_30_0")
+        """
+        logger.info("Finding latest available schema version")
+
+        schema_registry = get_schema_registry()
+        available_versions = schema_registry.get_available_schemas()
+
+        if not available_versions:
+            logger.warning("No schema versions available, using default '1_30_0'")
+            return "1_30_0"
+
+        logger.info("Parsing version strings to support proper version ordering")
+
+        def parse_version(version_str):
+            parts = version_str.split("_")
+            return tuple(int(part) for part in parts if part.isdigit())
+
+        logger.info("Sorting versions by numeric components with highest version last")
+        sorted_versions = sorted(available_versions, key=parse_version)
+        latest_version = sorted_versions[-1]
+
+        logger.info(f"Latest available schema version is: {latest_version}")
+        return latest_version
+
     async def _get_target_config(self, target_name: str) -> Optional[Dict[str, Any]]:
         """
         Get configuration for a specific target (internal method).
@@ -708,7 +756,7 @@ class OtgClient:
             target_name: Name of the target to look up
 
         Returns:
-            Target configuration including apiVersion and ports,
+            Target configuration including ports and dynamically determined apiVersion,
             or None if the target doesn't exist
         """
         logger.info(f"Looking up configuration for target: {target_name}")
@@ -718,7 +766,61 @@ class OtgClient:
 
             if target_name in targets:
                 logger.info(f"Found configuration for target: {target_name}")
-                return targets[target_name]
+                target_config = targets[target_name]
+                schema_registry = get_schema_registry()
+
+                logger.info(
+                    "Initializing apiVersion if not already present in target config"
+                )
+                if "apiVersion" not in target_config:
+                    logger.info(f"No apiVersion in target config for {target_name}")
+                    target_config["apiVersion"] = "unknown"  # Temporary placeholder
+
+                logger.info(
+                    "First priority: Getting API version directly from the target device"
+                )
+                try:
+                    logger.info(
+                        f"Attempting to get API version from target {target_name}"
+                    )
+                    version_info = await self.get_target_version(target_name)
+                    actual_api_version = version_info.api_spec_version
+                    normalized_version = actual_api_version.replace(".", "_")
+
+                    logger.info(
+                        f"Target {target_name} reports API version: {actual_api_version}"
+                    )
+
+                    logger.info(
+                        "Checking if a schema exists for the reported API version"
+                    )
+                    if schema_registry.schema_exists(normalized_version):
+                        logger.info(
+                            f"Found schema for actual version: {actual_api_version}"
+                        )
+                        target_config["apiVersion"] = actual_api_version
+                    else:
+                        logger.info(
+                            "No exact schema match found, selecting latest available schema"
+                        )
+                        latest_version = self._get_latest_schema_version()
+                        logger.warning(
+                            f"No schema for actual version {actual_api_version}. "
+                            f"Using latest available schema version: {latest_version}"
+                        )
+                        target_config["apiVersion"] = latest_version.replace("_", ".")
+                except Exception as e:
+                    logger.info(
+                        "Exception during API version detection, falling back to latest schema"
+                    )
+                    latest_version = self._get_latest_schema_version()
+                    logger.warning(
+                        f"Failed to get API version from target {target_name}: {str(e)}. "
+                        f"Using latest available schema version: {latest_version}"
+                    )
+                    target_config["apiVersion"] = latest_version.replace("_", ".")
+
+                return target_config
 
             logger.warning(f"Target not found: {target_name}")
             return None

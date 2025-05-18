@@ -9,7 +9,6 @@ import tempfile
 import pytest
 import yaml
 
-from otg_mcp.config import TargetConfig
 from otg_mcp.schema_registry import SchemaRegistry, get_schema_registry
 
 
@@ -134,26 +133,9 @@ class TestSchemaRegistry:
         assert registry1 is registry2
 
 
-class TestTargetConfigApiVersion:
-    """Test case for the TargetConfig API version."""
-
-    def test_default_api_version(self):
-        """Test that TargetConfig has a default apiVersion."""
-        config = TargetConfig()
-        assert hasattr(config, "apiVersion")
-        assert config.apiVersion == "1_30_0"
-
-    def test_custom_api_version(self):
-        """Test setting a custom apiVersion."""
-        config = TargetConfig(apiVersion="1_31_0")
-        assert config.apiVersion == "1_31_0"
-
-    def test_api_version_in_model_dump(self):
-        """Test apiVersion is included in model dump representation."""
-        config = TargetConfig(apiVersion="1_31_0")
-        config_dict = config.model_dump()
-        assert "apiVersion" in config_dict
-        assert config_dict["apiVersion"] == "1_31_0"
+# TestTargetConfigApiVersion class has been removed since apiVersion is no longer a field
+# in the TargetConfig model. The version is now determined dynamically based on the target's
+# actual version or the latest available schema version.
 
 
 # Test class for schema tools integration with server removed

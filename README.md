@@ -33,7 +33,6 @@ Example configuration (`examples/trafficGeneratorConfig.json`):
 {
   "targets": {
     "traffic-gen-1.example.com:8443": {
-      "apiVersion": "1.30.0",
       "ports": {
         "p1": {
           "location": "localhost:5555",
@@ -46,7 +45,6 @@ Example configuration (`examples/trafficGeneratorConfig.json`):
       }
     },
     "traffic-gen-2.example.com:8443": {
-      "apiVersion": "1.30.0",
       "ports": {
         "p1": {
           "location": "localhost:5555",
@@ -60,8 +58,18 @@ Example configuration (`examples/trafficGeneratorConfig.json`):
 
 Key elements in the configuration:
 - `targets`: Map of traffic generator targets
-- `apiVersion`: API schema version to use for each target
 - `ports`: Configuration for each port on the target, with location and name
+
+### API Version Handling
+
+The OTG MCP Server now automatically detects API versions from traffic generator targets:
+
+1. When connecting to a target, the server queries its API version
+2. If an exact matching schema version is available locally (versions 1.28.0 and newer are supported), it uses that schema
+3. If no exact match exists, it defaults to using the latest locally available schema
+4. This approach ensures optimal compatibility without manual configuration
+
+This enhancement eliminates the need to specify API versions in configuration files, reducing errors and ensuring the correct schema is always used.
 
 ## Testing with deployIxiaC
 
