@@ -13,7 +13,6 @@ from typing import Any, Dict, List, Optional, Union
 
 import aiohttp
 import snappi  # type: ignore
-from pydantic import BaseModel, Field
 
 from otg_mcp.config import Config
 from otg_mcp.models import (
@@ -32,25 +31,6 @@ from otg_mcp.schema_registry import get_schema_registry
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-
-class TargetRequest(BaseModel):
-    """Base request model that requires a target."""
-
-    target: str = Field(..., description="Target ID for the traffic generator")
-
-
-class ConfigRequest(TargetRequest):
-    """Request model for configuration operations."""
-
-    config: Dict[str, Any] = Field(..., description="Traffic generator configuration")
-
-
-class NamedRequest(TargetRequest):
-    """Request model for operations that target a specific named entity."""
-
-    name: str = Field(..., description="Name of the entity (port, flow, etc.)")
-
 
 @dataclass
 class OtgClient:

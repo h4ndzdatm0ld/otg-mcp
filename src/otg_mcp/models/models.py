@@ -10,8 +10,6 @@ class ApiResponse(BaseModel):
     """Base response model for API responses."""
 
     status: str = Field(default="success", description="Status of the response")
-    message: Optional[str] = None
-    data: Optional[Dict[str, Any]] = None
 
 
 class ConfigResponse(ApiResponse):
