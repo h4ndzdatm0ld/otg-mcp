@@ -32,6 +32,7 @@ from otg_mcp.schema_registry import get_schema_registry
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+
 @dataclass
 class OtgClient:
     """
@@ -719,11 +720,14 @@ class OtgClient:
         """
         Get the latest available schema version.
 
-        Finds all available schemas and returns the one with the highest version number.
-        Used as a fallback when target version can't be determined.
+        Finds all available schemas, sorts them based on version numbers,
+        and returns the highest version.
 
         Returns:
             The latest schema version in normalized format (e.g., "1_30_0")
+
+        Raises:
+            ValueError: If no schema versions are available
         """
         logger.info("Finding latest available schema version")
 
@@ -731,8 +735,9 @@ class OtgClient:
         available_versions = schema_registry.get_available_schemas()
 
         if not available_versions:
-            logger.warning("No schema versions available, using default '1_30_0'")
-            return "1_30_0"
+            error_msg = "No schema versions available"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
         logger.info("Parsing version strings to support proper version ordering")
 

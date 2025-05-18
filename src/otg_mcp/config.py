@@ -5,7 +5,7 @@ import socket
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, ConfigDict, Field, validator
 from pydantic_settings import BaseSettings
 
 logging.basicConfig(
@@ -81,7 +81,7 @@ class TargetConfig(BaseModel):
         default_factory=dict, description="Port configurations mapped by port name"
     )
 
-    model_config = {"extra": "forbid", "strict": True}
+    model_config = ConfigDict(extra="forbid")
 
 
 class TargetsConfig(BaseSettings):
@@ -169,52 +169,9 @@ class Config:
 
                 logger.info(f"Creating target config for {hostname}")
 
-                logger.info(
-                    "Validating no deprecated fields are present in target configuration"
-                )
-                if "apiVersion" in target_data:
-                    error_msg = (
-                        f"Invalid target configuration for {hostname}: apiVersion is no longer supported in target configuration. "
-                        f"The API version will be determined automatically from the device. "
-                        f"Please remove 'apiVersion': '{target_data['apiVersion']}' from your config file."
-                    )
-                    logger.error(error_msg)
-                    raise ValueError(error_msg)
-
-                logger.info(f"Processing port data for target {hostname}")
-                ports_config = {}
-                if "ports" in target_data:
-                    for port_name, port_data in target_data["ports"].items():
-                        if not isinstance(port_data, dict):
-                            error_msg = f"Port '{port_name}' for target '{hostname}' must be a dictionary"
-                            logger.error(error_msg)
-                            continue
-
-                        if "location" not in port_data:
-                            error_msg = f"Port '{port_name}' for target '{hostname}' must contain a 'location' property"
-                            logger.error(error_msg)
-                            continue
-
-                        logger.debug(f"Setting name for port {port_name}")
-                        name = port_data.get("name", port_name)
-
-                        logger.debug(
-                            f"Creating port config for {port_name} with location {port_data['location']}"
-                        )
-                        ports_config[port_name] = PortConfig(
-                            location=port_data["location"], name=name, interface=None
-                        )
-                else:
-                    logger.warning(
-                        f"Target '{hostname}' does not contain a 'ports' dictionary"
-                    )
-
-                logger.info(f"Creating validated target config for {hostname}")
+                logger.info("Validating target configuration using Pydantic model")
                 try:
-                    logger.debug(
-                        "Using only validated port data for target config creation"
-                    )
-                    target_config = TargetConfig(ports=ports_config)
+                    target_config = TargetConfig(**target_data)
                 except Exception as e:
                     error_msg = (
                         f"Invalid target configuration for '{hostname}': {str(e)}"

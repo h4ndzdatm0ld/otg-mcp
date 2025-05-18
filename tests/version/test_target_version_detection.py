@@ -134,18 +134,3 @@ async def test_get_latest_schema_version(client):
 
     # Verify that the latest version was correctly identified
     assert latest_version == "1_30_0"
-
-
-@pytest.mark.asyncio
-async def test_get_latest_schema_version_empty(client):
-    """Test that the client returns a default value when no schemas are available."""
-    # Mock schema_registry to return an empty list
-    mock_registry = MagicMock()
-    mock_registry.get_available_schemas.return_value = []
-
-    # Call _get_latest_schema_version with our test setup
-    with patch("otg_mcp.client.get_schema_registry", return_value=mock_registry):
-        latest_version = client._get_latest_schema_version()
-
-    # Verify that the default version is returned
-    assert latest_version == "1_30_0"
