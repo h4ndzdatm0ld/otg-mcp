@@ -1,5 +1,7 @@
 # OTG MCP Server
 
+[![codecov](https://codecov.io/gh/h4ndzdatm0ld/otg-mcp/graph/badge.svg?token=FCrRSKjGZz)](https://codecov.io/gh/h4ndzdatm0ld/otg-mcp) [![CI](https://github.com/h4ndzdatm0ld/otg-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/h4ndzdatm0ld/otg-mcp/actions/workflows/ci.yml)
+
 MCP (Model Context Protocol) server implementation for Open Traffic Generator (OTG) API.
 
 ## Overview
@@ -11,7 +13,7 @@ The OTG MCP Server is a Python-based Model Context Protocol (MCP) to provide acc
 - **Configuration-Based Connection**: Connect to traffic generators via standardized configuration
 - **OTG API Implementation**: Complete implementation of the Open Traffic Generator API
 - **Multi-Target Support**: Connect to multiple traffic generators simultaneously
-- **Type-Safe Client**: Generate Python clients from OpenAPI specifications
+- **Type-Safe Models**: Pydantic models for configuration, metrics, and response data
 - **Resilient Connections**: Automatic reconnect and retry logic for reliability
 
 ## Documentation
@@ -19,6 +21,27 @@ The OTG MCP Server is a Python-based Model Context Protocol (MCP) to provide acc
 Comprehensive documentation is available in the `docs/` directory:
 
 - [Ixia-C Deployment Guide](./docs/deployIxiaC_simple_testing.md): Simple testing with Ixia-C Community Edition
+- [GitHub Flow](./docs/github-flow.md): Guidelines for GitHub workflow
+
+## Testing with deployIxiaC
+
+The project includes a utility script `deploy/deployIxiaC.sh` that helps set up and deploy Ixia-C for testing purposes. This script:
+
+- Pulls necessary Docker images for Ixia-C
+- Sets up the environment with the correct networking
+- Configures the test environment for OTG API usage
+
+To use this utility:
+
+```bash
+# Navigate to the deploy directory
+cd deploy
+
+# Run the deployment script (requires Docker)
+./deployIxiaC.sh
+```
+
+Refer to the [Ixia-C Deployment Guide](./docs/deployIxiaC_simple_testing.md) for more detailed information about using Ixia-C with this project.
 
 ## Examples
 
@@ -29,7 +52,9 @@ The project includes examples showing how to:
 - Start and stop traffic
 - Collect and analyze metrics
 
-See the [Traffic Generator Test Examples](./src/examples/traffic_generator_tests/README.md) for examples demonstrating connectivity and traffic generation with various traffic generators.
+See the examples in the `examples/` directory:
+- `trafficGeneratorConfig.json`: Example configuration for traffic generators
+- `simple_gateway_test.py`: Example script for basic testing of API executions
 
 ## Getting Started
 
@@ -54,18 +79,32 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 ```
 
+### Docker Container
+
+The OTG MCP Server can also be run as a Docker container, available from the GitHub Container Registry:
+
+```bash
+# Pull the container image
+docker pull ghcr.io/h4ndzdatm0ld/otg-mcp:latest
+
+# Run the container with your configuration
+docker run -v $(pwd)/examples:/app/examples -p 8443:8443 ghcr.io/h4ndzdatm0ld/otg-mcp:latest --config-file examples/trafficGeneratorConfig.json
+```
+
+This approach eliminates the need for local Python environment setup and ensures consistent execution across different platforms.
+
 ### Running the Server
 
 ```bash
-# Start the server
-python -m otg_mcp.server
+# Start the server with a configuration file
+python -m otg_mcp.server --config-file examples/trafficGeneratorConfig.json
 ```
 
 ### Running Examples
 
 ```bash
-# Run the traffic generator example
-python src/examples/traffic_generator_tests/traffic_generator_test.py
+# Run the simple gateway test example
+python examples/simple_gateway_test.py
 ```
 
 ## Development
@@ -75,17 +114,36 @@ python src/examples/traffic_generator_tests/traffic_generator_test.py
 ```
 .
 ├── docs/                    # Documentation
-│   └── traffic_generator_guide.md     # Traffic generator-specific documentation
+│   ├── deployIxiaC_simple_testing.md # Ixia-C testing guide
+│   └── github-flow.md       # GitHub workflow documentation
+├── deploy/                  # Deployment scripts
+│   └── deployIxiaC.sh       # Script for deploying Ixia-C testing environment
 ├── src/                     # Source code
-│   ├── otg_mcp/             # Main package
-│   │   ├── models/          # Data models
-│   │   ├── schemas/         # API schemas
-│   │   └── client.py        # Traffic generator client
-│   └── examples/            # Example scripts
-│       └── traffic_generator_tests/   # Traffic generator examples
+│   └── otg_mcp/             # Main package
+│       ├── models/          # Data models
+│       │   ├── __init__.py  # Model exports
+│       │   └── models.py    # Model definitions
+│       ├── schemas/         # API schemas
+│       │   └── 1_30_0/      # Schema version 1.30.0
+│       ├── __init__.py      # Package initialization
+│       ├── __main__.py      # Entry point
+│       ├── client.py        # Traffic generator client
+│       ├── config.py        # Configuration management
+│       ├── schema_registry.py # Schema management
+│       └── server.py        # MCP server implementation
+├── examples/                # Example scripts and configurations
+│   ├── trafficGeneratorConfig.json # Example configuration
+│   └── simple_gateway_test.py      # Example test script
 ├── tests/                   # Test suite
-├── memory-bank/             # Project documentation and context
-└── requirements/            # Dependency specifications
+│   ├── fixtures/            # Test fixtures
+│   └── ...                  # Various test files
+├── .gitignore               # Git ignore file
+├── Dockerfile               # Docker build file
+├── LICENSE                  # License file
+├── README.md                # This file
+├── pyproject.toml           # Project metadata
+├── requirements.txt         # Dependencies
+└── setup.py                 # Package setup
 ```
 
 ### Key Components
@@ -94,6 +152,7 @@ python src/examples/traffic_generator_tests/traffic_generator_test.py
 2. **Configuration Manager**: Handles traffic generator configuration and connections
 3. **OTG Client**: Client for interacting with traffic generators
 4. **Schema Registry**: Manages API schemas for different traffic generator versions
+5. **Models**: Pydantic models for representing data structures
 
 ### Code Quality
 
@@ -102,7 +161,7 @@ The project maintains high code quality standards:
 - **Type Safety**: Full mypy type hinting
 - **Testing**: Comprehensive pytest coverage
 - **Documentation**: Google docstring format for all code
-- **Logging**: Preferred over comments throughout codebase
+- **Logging**: Used throughout the codebase instead of comments
 - **Data Models**: Pydantic models for validation and serialization
 
 ## Contributing
