@@ -25,10 +25,7 @@ jobs:
         run: uv venv
 
       - name: Install dependencies
-        run: |
-          uv pip install -e .
-          uv pip install ruff mypy types-PyYAML
-          uv pip install -r requirements/requirements-type-checking.txt
+        run: uv pip install -e .[dev,test]
 
       - name: Lint with ruff
         run: uv run ruff check .
@@ -64,13 +61,15 @@ jobs:
         run: uv venv
 
       - name: Install dependencies
-        run: uv pip install -e .
-
-      - name: Install test dependencies
-        run: uv pip install -r requirements/requirements-hatch-test.py3.11.txt
+        run: uv pip install -e .[dev,test]
 
       - name: Run tests
-        run: uv run pytest tests/ --cov=src --cov-report=xml
+        run: uv run pytest tests/ --cov --cov-branch --cov-report=xml
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Build package
         run: uv build

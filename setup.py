@@ -13,6 +13,7 @@ setup(
             "black>=25.1.0",
             "ruff>=0.11.7",
             "mypy>=1.0.0",
+            "types-PyYAML",
             "pip>=25.1.1",
         ],
         "test": [
