@@ -23,6 +23,46 @@ Comprehensive documentation is available in the `docs/` directory:
 - [Ixia-C Deployment Guide](./docs/deployIxiaC_simple_testing.md): Simple testing with Ixia-C Community Edition
 - [GitHub Flow](./docs/github-flow.md): Guidelines for GitHub workflow
 
+## Configuration
+
+The OTG MCP Server uses a JSON configuration file to define traffic generator targets and their ports.
+
+Example configuration (`examples/trafficGeneratorConfig.json`):
+
+```json
+{
+  "targets": {
+    "traffic-gen-1.example.com:8443": {
+      "apiVersion": "1.30.0",
+      "ports": {
+        "p1": {
+          "location": "localhost:5555",
+          "name": "p1"
+        },
+        "p2": {
+          "location": "localhost:5556",
+          "name": "p2"
+        }
+      }
+    },
+    "traffic-gen-2.example.com:8443": {
+      "apiVersion": "1.30.0",
+      "ports": {
+        "p1": {
+          "location": "localhost:5555",
+          "name": "p1"
+        }
+      }
+    }
+  }
+}
+```
+
+Key elements in the configuration:
+- `targets`: Map of traffic generator targets
+- `apiVersion`: API schema version to use for each target
+- `ports`: Configuration for each port on the target, with location and name
+
 ## Testing with deployIxiaC
 
 The project includes a utility script `deploy/deployIxiaC.sh` that helps set up and deploy Ixia-C for testing purposes. This script:
@@ -53,6 +93,7 @@ The project includes examples showing how to:
 - Collect and analyze metrics
 
 See the examples in the `examples/` directory:
+
 - `trafficGeneratorConfig.json`: Example configuration for traffic generators
 - `simple_gateway_test.py`: Example script for basic testing of API executions
 
@@ -92,6 +133,47 @@ docker run -v $(pwd)/examples:/app/examples -p 8443:8443 ghcr.io/h4ndzdatm0ld/ot
 ```
 
 This approach eliminates the need for local Python environment setup and ensures consistent execution across different platforms.
+
+### MCP Server Configuration Example
+
+When integrating with an MCP client application, you can use the following configuration example to specify the OTG MCP Server as a tool provider:
+
+> NOTE: Or use `uvx`
+
+```json
+{
+  "OpenTrafficGenerator - MCP": {
+    "autoApprove": [
+      "get_available_targets",
+      "get_config",
+      "get_metrics",
+      "get_schemas_for_target",
+      "health",
+      "list_schemas_for_target",
+      "set_config",
+      "start_capture",
+      "start_traffic",
+      "stop_capture",
+      "stop_traffic"
+    ],
+    "disabled": false,
+    "timeout": 60,
+    "command": "python",
+    "args": [
+      "/path/to/otg-mcp/src/otg_mcp/server.py",
+      "--config-file",
+      "/path/to/otg-mcp/examples/trafficGeneratorConfig.json"
+    ],
+    "transportType": "stdio"
+  }
+}
+```
+
+Key elements in this configuration:
+- `autoApprove`: Tools that can be executed without explicit approval
+- `timeout`: Maximum time in seconds allowed for operations
+- `command` and `args`: How to launch the OTG MCP Server
+- `transportType`: Communication method (stdio or SSE)
 
 ### Running the Server
 
