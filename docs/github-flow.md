@@ -66,6 +66,76 @@ graph TD
    - Delete the feature branch
    - CI/CD deploys the changes automatically
 
+## Release Process
+
+We use GitHub Releases to create official releases, which trigger our CI workflow to publish packages to PyPI.
+
+### Creating a Release
+
+1. **Ensure `main` branch is ready for release**
+   - All tests should be passing
+   - Documentation should be up-to-date
+   - Version number should be updated in relevant files (e.g., `pyproject.toml`)
+
+2. **Create and push a tag**
+   ```bash
+   # Create a tag using semantic versioning (vX.Y.Z)
+   git checkout main
+   git pull origin main
+   git tag -a v1.2.3 -m "Release v1.2.3"
+   git push origin v1.2.3
+   ```
+
+3. **Create a GitHub Release**
+   - Go to the GitHub repository
+   - Navigate to "Releases" > "Create a new release"
+   - Select the tag you just created
+   - Add a title (e.g., "Release v1.2.3")
+   - Write detailed release notes:
+     - Major features and improvements
+     - Bug fixes
+     - Breaking changes (if any)
+     - Migration instructions (if needed)
+   - Click "Publish release"
+
+4. **Automated Publication**
+   - Our CI workflow automatically detects the new release
+   - It builds the package for different platforms
+   - It publishes the package to PyPI using trusted publishing
+   - The workflow runs the `publish` job specifically when a release is published
+
+### Release versioning
+
+We follow semantic versioning (SemVer) for release tags:
+
+- **Major version** (X.y.z): Incremented for incompatible API changes
+- **Minor version** (x.Y.z): Incremented for added functionality in a backward-compatible manner
+- **Patch version** (x.y.Z): Incremented for backward-compatible bug fixes
+
+```mermaid
+graph TD
+    A[main branch] -->|Tag v1.0.0| B[Release v1.0.0]
+    A -->|Continue development| C[Feature updates]
+    C -->|Tag v1.1.0| D[Release v1.1.0]
+    C -->|Bug fix| E[Patch]
+    E -->|Tag v1.1.1| F[Release v1.1.1]
+    C -->|Breaking change| G[Major update]
+    G -->|Tag v2.0.0| H[Release v2.0.0]
+```
+
+### Pre-releases (optional)
+
+For significant changes, consider using pre-release tags:
+
+- Alpha releases: `v1.2.3-alpha.1`
+- Beta releases: `v1.2.3-beta.1`
+- Release candidates: `v1.2.3-rc.1`
+
+```bash
+git tag -a v1.2.3-rc.1 -m "Release candidate 1 for v1.2.3"
+git push origin v1.2.3-rc.1
+```
+
 ## Benefits of GitHub Flow
 
 - **Simplicity**: Easy to understand and follow
