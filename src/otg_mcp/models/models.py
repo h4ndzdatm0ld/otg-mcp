@@ -32,6 +32,9 @@ class CaptureResponse(ApiResponse):
     port: str = Field(..., description="Name of the port used for capture")
     data: Optional[Dict[str, Any]] = Field(default=None, description="Capture data")
     capture_id: Optional[str] = None
+    file_path: Optional[str] = Field(
+        default=None, description="Path to the saved capture file (.pcap)"
+    )
 
 
 class ControlResponse(ApiResponse):

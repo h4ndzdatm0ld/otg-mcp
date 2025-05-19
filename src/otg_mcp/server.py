@@ -177,6 +177,27 @@ class OtgMcpServer:
         logger.info(f"Tool: stop_capture for port {port_name} on target {target}")
         return await self.client.stop_capture(target=target, port_name=port_name)
 
+    async def tool_get_capture(
+        self,
+        port_name: Annotated[
+            str, Field(description="Name of the port to get capture from")
+        ],
+        target: Annotated[str, Field(description="Target traffic generator")],
+        output_dir: Annotated[
+            Optional[str],
+            Field(description="Directory to save the capture file (default: /tmp)"),
+        ] = None,
+    ) -> CaptureResponse:
+        """
+        Get packet capture from a port and save it to a file.
+
+        The capture data is saved as a .pcap file that can be opened with tools like Wireshark.
+        """
+        logger.info(f"Tool: get_capture for port {port_name} on target {target}")
+        return await self.client.get_capture(
+            target=target, port_name=port_name, output_dir=output_dir
+        )
+
     async def tool_get_available_targets(self) -> Dict[str, Dict[str, Any]]:
         """Get all available traffic generator targets with comprehensive information."""
         logger.info("Tool: get_available_targets")
