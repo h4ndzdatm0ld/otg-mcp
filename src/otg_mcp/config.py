@@ -5,7 +5,7 @@ import socket
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, validator
+from pydantic import BaseModel, ConfigDict, Field, validator, ValidationError
 from pydantic_settings import BaseSettings
 
 logging.basicConfig(
@@ -181,7 +181,7 @@ class Config:
                 logger.info("Validating target configuration using Pydantic model")
                 try:
                     target_config = TargetConfig(**target_data)
-                except Exception as e:
+                except ValidationError as e:
                     error_msg = (
                         f"Invalid target configuration for '{hostname}': {str(e)}"
                     )
@@ -196,7 +196,7 @@ class Config:
                 logger.info(f"Adding target {hostname} to configuration")
                 self.targets.targets[hostname] = target_config
 
-            # Process schema path if present in config
+            logger.info("Checking for schema path in configuration")
             if "schema_path" in config_data:
                 schema_path = config_data["schema_path"]
                 logger.info(f"Found schema_path in config: {schema_path}")

@@ -36,8 +36,8 @@ async def test_target_version_detection_uses_actual_version(client):
     
     # Mock get_target_version to return a different version
     client.get_target_version = AsyncMock(return_value=CapabilitiesVersionResponse(
-        api_spec_version="1.28.2",  # Actual version from device
-        sdk_version="1.0.0",
+        api_spec_version="1.*",     # API spec version
+        sdk_version="1.28.2",       # SDK version (now used for schema matching)
         app_version="1.0.0"
     ))
     
@@ -74,8 +74,8 @@ async def test_target_version_detection_fallback_to_latest_version(client):
     
     # Mock get_target_version to return a version we don't have a schema for
     client.get_target_version = AsyncMock(return_value=CapabilitiesVersionResponse(
-        api_spec_version="1.28.2",  # Actual version from device
-        sdk_version="1.0.0",
+        api_spec_version="1.*",     # API spec version
+        sdk_version="1.28.2",       # SDK version (now used for schema matching)
         app_version="1.0.0"
     ))
     

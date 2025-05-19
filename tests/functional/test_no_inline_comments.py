@@ -20,9 +20,10 @@ logging.basicConfig(level=logging.INFO,
 
 def test_no_inline_comments():
     """Test that there are no inline comments in Python files."""
-    # Test only schema_registry.py for now
+    # Test all Python files in source directory
     source_dirs = ["src"]
-    target_file = "schema_registry.py"
+    # Check all .py files, not just schema_registry.py
+    target_extension = ".py"
 
     # Force the logger to print to stdout
     logging.basicConfig(level=logging.DEBUG, force=True,
@@ -48,13 +49,13 @@ def test_no_inline_comments():
             print(f"Directory: {root}")
             print(f"Files: {files}")
 
-        print("Now searching for the specific file...")
+        print("Now searching for Python files...")
         for root, _, files in os.walk(base_path):
             print(f"Checking dir: {root}, Files: {files}")
             for file in files:
                 print(f"Found file: {file} in {root}")
-                # Focus only on schema_registry.py
-                if file == target_file:
+                # Process all Python files
+                if file.endswith(target_extension):
                     print(f"PROCESSING TARGET FILE: {file}")
                     filepath = os.path.join(root, file)
                     logger.info("Examining file: %s", filepath)

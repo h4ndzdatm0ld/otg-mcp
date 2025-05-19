@@ -50,11 +50,11 @@ class OtgClient:
         """Initialize after dataclass initialization."""
         logger.info("Initializing OTG client")
 
-        # Create a SchemaRegistry only if one wasn't provided
+        logger.debug("Checking if we need to create a SchemaRegistry")
         if self.schema_registry is None:
             logger.info("No SchemaRegistry provided, creating one")
             custom_schema_path = None
-            if hasattr(self.config, "schemas") and self.config.schemas.schema_path:
+            if self.config.schemas.schema_path:
                 custom_schema_path = self.config.schemas.schema_path
                 logger.info(
                     f"Using custom schema path from config: {custom_schema_path}"
@@ -632,7 +632,8 @@ class OtgClient:
 
                 logger.info(f"Adding port configurations for {hostname}")
                 for port_name, port_config in target_config.ports.items():
-                    location = port_config.location or ""  # Ensure location is not None
+                    logger.debug(f"Ensuring location is not None for port {port_name}")
+                    location = port_config.location or ""
                     gen_info.ports[port_name] = PortInfo(
                         name=port_name, location=location, interface=None
                     )
@@ -706,9 +707,9 @@ class OtgClient:
                     )
                     try:
                         version_info = await self.get_target_version(target_name)
-                        target_dict["apiVersion"] = version_info.api_spec_version
+                        target_dict["apiVersion"] = version_info.sdk_version
                         logger.info(
-                            f"Detected API version {version_info.api_spec_version} for target {target_name}"
+                            f"Detected API version {version_info.sdk_version} for target {target_name}"
                         )
                     except Exception as version_error:
                         logger.warning(
@@ -731,8 +732,6 @@ class OtgClient:
             logger.error(traceback.format_exc())
             return {}
 
-    # Removed _get_latest_schema_version method - now using SchemaRegistry.get_latest_schema_version
-
     async def _get_target_config(self, target_name: str) -> Optional[Dict[str, Any]]:
         """
         Get configuration for a specific target (internal method).
@@ -754,9 +753,12 @@ class OtgClient:
                 target_config = targets[target_name]
                 schema_registry = self.schema_registry
 
-                # Initialize with a default value that will be overridden by the device's reported version
-                target_config["apiVersion"] = (
-                    "unknown"  # Always set dynamically, never from config
+                logger.info(
+                    "Initializing API version with default value to be overridden by device-reported version"
+                )
+                target_config["apiVersion"] = "unknown"
+                logger.debug(
+                    "API version is always set dynamically from device, never from config"
                 )
 
                 logger.info("Getting API version directly from the target device")
@@ -765,14 +767,16 @@ class OtgClient:
                         f"Attempting to get API version from target {target_name}"
                     )
                     version_info = await self.get_target_version(target_name)
-                    actual_api_version = version_info.api_spec_version
+                    actual_api_version = version_info.sdk_version
                     normalized_version = actual_api_version.replace(".", "_")
 
                     logger.info(
                         f"Target {target_name} reports API version: {actual_api_version}"
                     )
 
-                    # Schema registry should always be initialized by __post_init__
+                    logger.debug(
+                        "Verifying schema registry was properly initialized in __post_init__"
+                    )
                     if schema_registry is None:
                         logger.error("Schema registry is not initialized")
                         raise ValueError("Schema registry is not initialized")
@@ -863,7 +867,7 @@ class OtgClient:
             for schema_name in schema_names:
                 logger.info(f"Retrieving schema {schema_name} for target {target_name}")
                 try:
-                    # Verify registry is initialized
+                    logger.debug("Verifying schema registry is properly initialized")
                     if registry is None:
                         logger.error("Schema registry is not initialized")
                         raise ValueError("Schema registry is not initialized")
@@ -883,7 +887,7 @@ class OtgClient:
                         )
                 except Exception as e:
                     logger.warning(f"Error retrieving schema {schema_name}: {str(e)}")
-                    # Create error dictionary for exception
+                    logger.debug("Creating error dictionary for exception response")
                     error_msg = str(e)
                     result[schema_name] = {"error": error_msg}
 
@@ -923,7 +927,7 @@ class OtgClient:
 
         try:
             registry = self.schema_registry
-            # Verify registry is initialized
+            logger.debug("Verifying schema registry is properly initialized")
             if registry is None:
                 logger.error("Schema registry is not initialized")
                 raise ValueError("Schema registry is not initialized")
@@ -1011,7 +1015,7 @@ class OtgClient:
 
         try:
             registry = self.schema_registry
-            # Verify registry is initialized
+            logger.debug("Verifying schema registry is properly initialized")
             if registry is None:
                 logger.error("Schema registry is not initialized")
                 raise ValueError("Schema registry is not initialized")
@@ -1035,9 +1039,8 @@ class OtgClient:
         """
         logger.info(f"Checking health of {target or 'all targets'}")
 
-        health_status = HealthStatus(
-            status="success"
-        )  # Initialize with required status field
+        logger.debug("Initializing HealthStatus with required status field")
+        health_status = HealthStatus(status="success")
 
         try:
             target_names = []
