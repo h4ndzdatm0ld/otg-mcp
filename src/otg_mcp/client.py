@@ -56,7 +56,9 @@ class OtgClient:
             custom_schema_path = None
             if hasattr(self.config, "schemas") and self.config.schemas.schema_path:
                 custom_schema_path = self.config.schemas.schema_path
-                logger.info(f"Using custom schema path from config: {custom_schema_path}")
+                logger.info(
+                    f"Using custom schema path from config: {custom_schema_path}"
+                )
 
             self.schema_registry = SchemaRegistry(custom_schema_path)
             logger.info("Created new SchemaRegistry instance")
@@ -752,16 +754,12 @@ class OtgClient:
                 target_config = targets[target_name]
                 schema_registry = self.schema_registry
 
-                logger.info(
-                    "Initializing apiVersion if not already present in target config"
+                # Initialize with a default value that will be overridden by the device's reported version
+                target_config["apiVersion"] = (
+                    "unknown"  # Always set dynamically, never from config
                 )
-                if "apiVersion" not in target_config:
-                    logger.info(f"No apiVersion in target config for {target_name}")
-                    target_config["apiVersion"] = "unknown"  # Temporary placeholder
 
-                logger.info(
-                    "First priority: Getting API version directly from the target device"
-                )
+                logger.info("Getting API version directly from the target device")
                 try:
                     logger.info(
                         f"Attempting to get API version from target {target_name}"
@@ -774,8 +772,11 @@ class OtgClient:
                         f"Target {target_name} reports API version: {actual_api_version}"
                     )
 
-                    # We know schema_registry can't be None here because it was initialized in __post_init__
-                    assert schema_registry is not None, "SchemaRegistry should not be None at this point"
+                    # Schema registry should always be initialized by __post_init__
+                    if schema_registry is None:
+                        logger.error("Schema registry is not initialized")
+                        raise ValueError("Schema registry is not initialized")
+
                     logger.info(
                         "Checking for schema match for the reported API version"
                     )
@@ -788,7 +789,10 @@ class OtgClient:
                         logger.info(
                             "No exact schema match found, finding closest available schema"
                         )
-                        assert schema_registry is not None, "SchemaRegistry should not be None at this point"
+                        if schema_registry is None:
+                            logger.error("Schema registry is not initialized")
+                            raise ValueError("Schema registry is not initialized")
+
                         closest_version = schema_registry.find_closest_schema_version(
                             normalized_version
                         )
@@ -802,7 +806,10 @@ class OtgClient:
                     logger.info(
                         "Exception during API version detection, falling back to latest schema"
                     )
-                    assert schema_registry is not None, "SchemaRegistry should not be None at this point"
+                    if schema_registry is None:
+                        logger.error("Schema registry is not initialized")
+                        raise ValueError("Schema registry is not initialized")
+
                     latest_version = schema_registry.get_latest_schema_version()
                     latest_version_dotted = latest_version.replace("_", ".")
                     logger.warning(
@@ -856,8 +863,10 @@ class OtgClient:
             for schema_name in schema_names:
                 logger.info(f"Retrieving schema {schema_name} for target {target_name}")
                 try:
-                    # Ensure registry is not None
-                    assert registry is not None, "Schema registry should not be None"
+                    # Verify registry is initialized
+                    if registry is None:
+                        logger.error("Schema registry is not initialized")
+                        raise ValueError("Schema registry is not initialized")
 
                     if "." not in schema_name or not schema_name.startswith(
                         "components.schemas."
@@ -914,8 +923,10 @@ class OtgClient:
 
         try:
             registry = self.schema_registry
-            # Ensure registry is not None
-            assert registry is not None, "Schema registry should not be None"
+            # Verify registry is initialized
+            if registry is None:
+                logger.error("Schema registry is not initialized")
+                raise ValueError("Schema registry is not initialized")
             schema = registry.get_schema(api_version)
 
             if (
@@ -1000,8 +1011,10 @@ class OtgClient:
 
         try:
             registry = self.schema_registry
-            # Ensure registry is not None
-            assert registry is not None, "Schema registry should not be None"
+            # Verify registry is initialized
+            if registry is None:
+                logger.error("Schema registry is not initialized")
+                raise ValueError("Schema registry is not initialized")
             return registry.get_schema_components(api_version, path_prefix)
         except Exception as e:
             error_msg = (

@@ -58,9 +58,12 @@ class OtgMcpServer:
             custom_schema_path = None
             if hasattr(config, "schemas") and config.schemas.schema_path:
                 custom_schema_path = config.schemas.schema_path
-                logger.info(f"Using custom schema path from config: {custom_schema_path}")
+                logger.info(
+                    f"Using custom schema path from config: {custom_schema_path}"
+                )
 
             from otg_mcp.schema_registry import SchemaRegistry
+
             self.schema_registry = SchemaRegistry(custom_schema_path)
 
             # Initialize the OTG client with the schema registry

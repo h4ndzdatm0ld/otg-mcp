@@ -98,7 +98,9 @@ class SchemaRegistry:
                     )
                 ]
 
-                logger.debug("Adding built-in schemas that don't conflict with custom schemas")
+                logger.debug(
+                    "Adding built-in schemas that don't conflict with custom schemas"
+                )
                 for schema in built_in_schemas:
                     if schema not in self._available_schemas:
                         self._available_schemas.append(schema)
@@ -371,7 +373,9 @@ class SchemaRegistry:
         logger.debug("Checking for exact schema version match first")
         normalized = self._normalize_version(requested_version)
         if normalized in available_versions:
-            logger.info(f"Found exact schema match for {requested_version}: {normalized}")
+            logger.info(
+                f"Found exact schema match for {requested_version}: {normalized}"
+            )
             return normalized
 
         logger.debug("Parsing the requested version")
@@ -380,7 +384,9 @@ class SchemaRegistry:
             logger.debug("Unable to parse version, returning latest schema version")
             return self.get_latest_schema_version()
 
-        logger.debug("Ensuring requested version has at least 3 components (major.minor.patch)")
+        logger.debug(
+            "Ensuring requested version has at least 3 components (major.minor.patch)"
+        )
         if len(req_version) < 3:
             logger.debug("Padding requested version with zeros for missing components")
             req_version = req_version + (0,) * (3 - len(req_version))
@@ -392,16 +398,25 @@ class SchemaRegistry:
             logger.error(error_msg)
             raise ValueError(error_msg)
 
-        logger.debug("Finding schema versions with same major.minor and equal or lower patch")
+        logger.debug(
+            "Finding schema versions with same major.minor and equal or lower patch"
+        )
         same_major_minor = []
         for version, ver in parsed_versions:
-            if len(ver) >= 3 and ver[0] == req_version[0] and ver[1] == req_version[1] and ver[2] <= req_version[2]:
+            if (
+                len(ver) >= 3
+                and ver[0] == req_version[0]
+                and ver[1] == req_version[1]
+                and ver[2] <= req_version[2]
+            ):
                 same_major_minor.append((version, ver))
 
         if same_major_minor:
             logger.debug("Sorting by version tuple and taking the highest")
             closest = sorted(same_major_minor, key=lambda x: x[1])[-1][0]
-            logger.info(f"Using version {closest} with same major.minor as {requested_version}")
+            logger.info(
+                f"Using version {closest} with same major.minor as {requested_version}"
+            )
             return closest
 
         logger.debug("Finding schema versions with same major version")
@@ -413,12 +428,16 @@ class SchemaRegistry:
         if same_major:
             logger.debug("Sorting by version tuple and taking the highest")
             closest = sorted(same_major, key=lambda x: x[1])[-1][0]
-            logger.info(f"Using version {closest} with same major as {requested_version}")
+            logger.info(
+                f"Using version {closest} with same major as {requested_version}"
+            )
             return closest
 
         logger.debug("Fallback to latest overall schema version")
         latest = sorted(parsed_versions, key=lambda x: x[1])[-1][0]
-        logger.info(f"No matching version found, falling back to latest version {latest}")
+        logger.info(
+            f"No matching version found, falling back to latest version {latest}"
+        )
         return latest
 
     def get_latest_schema_version(self) -> str:

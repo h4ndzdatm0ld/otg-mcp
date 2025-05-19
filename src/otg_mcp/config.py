@@ -204,7 +204,9 @@ class Config:
                     self.schemas.schema_path = schema_path
                     logger.info(f"Using custom schema path: {schema_path}")
                 else:
-                    logger.warning(f"Specified schema path does not exist: {schema_path}")
+                    logger.warning(
+                        f"Specified schema path does not exist: {schema_path}"
+                    )
 
             logger.info(
                 f"Successfully loaded configuration with {len(self.targets.targets)} targets"
