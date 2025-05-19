@@ -6,14 +6,17 @@ using snappi API directly, with proper target management and version detection.
 """
 
 import logging
+import os
 import time
 import traceback
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
 import aiohttp
 import snappi  # type: ignore
 
+from otg_mcp.client_capture import get_capture, start_capture, stop_capture
 from otg_mcp.config import Config
 from otg_mcp.models import (
     CapabilitiesVersionResponse,
@@ -378,32 +381,218 @@ class OtgClient:
 
         return api.get_metrics(request)
 
-    def _start_capture(self, api, port_name):
+    def _start_capture(self, api: Any, port_names: Union[str, List[str]]) -> None:
         """
-        Start packet capture on a port.
+        Start packet capture on one or more ports.
 
         Args:
             api: Snappi API client
-            port_name: Name of port to capture on
+            port_names: List or single name of port(s) to capture on
         """
-        request = api.capture_request()
-        request.port_name = port_name
-        api.start_capture(request)
+        logger.info(f"Starting capture for ports: {port_names}")
 
-    def _stop_capture(self, api, port_name):
+        logger.debug("Converting port names to list for consistent handling")
+        port_list = [port_names] if isinstance(port_names, str) else list(port_names)
+
+        logger.debug("Detecting available API methods for capture")
+        api_methods = [method for method in dir(api) if not method.startswith("_")]
+        logger.debug(f"Available API methods: {api_methods}")
+
+        logger.info("Trying multiple methods to start capture based on available API")
+        try:
+            if "capture_state" in api_methods:
+                logger.info("Using capture_state() method")
+                cs = api.capture_state()
+                cs.state = "start"
+                cs.port_names = port_list
+                api.set_capture_state(cs)
+            elif "start_capture" in api_methods:
+                logger.info("Using start_capture() method")
+                for port in port_list:
+                    api.start_capture(port_name=port)
+            elif "control_state" in api_methods:
+                logger.info("Using control_state() method for capture")
+                cs = api.control_state()
+
+                logger.debug("Checking if there's a CAPTURE choice available")
+                if hasattr(cs, "CAPTURE") and hasattr(cs, "choice"):
+                    logger.debug("Setting control_state choice to CAPTURE")
+                    cs.choice = cs.CAPTURE
+
+                    logger.debug("Checking for capture attribute in control_state")
+                    if hasattr(cs, "capture"):
+                        logger.debug("Found capture attribute in control_state")
+
+                        if hasattr(cs.capture, "port_names"):
+                            logger.debug("Setting port_names in capture")
+                            cs.capture.port_names = port_list
+
+                        if hasattr(cs.capture, "state"):
+                            logger.debug("Setting capture state to start")
+                            if hasattr(cs.capture, "START"):
+                                cs.capture.state = cs.capture.START
+                            else:
+                                cs.capture.state = "start"
+
+                logger.info(
+                    f"Setting control state to start capture on ports: {port_list}"
+                )
+                api.set_control_state(cs)
+            else:
+                logger.error("No compatible capture method found in API")
+                raise NotImplementedError("No method available to start capture")
+        except Exception as e:
+            logger.error(f"Error starting capture: {e}")
+            raise
+
+    def _stop_capture(self, api: Any, port_names: Union[str, List[str]]) -> None:
         """
-        Stop packet capture on a port.
+        Stop packet capture on one or more ports.
 
         Args:
             api: Snappi API client
-            port_name: Name of port to stop capture on
+            port_names: List or single name of port(s) to stop capture on
+        """
+        logger.info(f"Stopping capture for ports: {port_names}")
+
+        logger.debug("Converting port names to list for consistent handling")
+        port_list = [port_names] if isinstance(port_names, str) else list(port_names)
+
+        logger.debug("Detecting available API methods for capture")
+        api_methods = [method for method in dir(api) if not method.startswith("_")]
+        logger.debug(f"Available API methods: {api_methods}")
+
+        try:
+            if "capture_state" in api_methods:
+                logger.info("Using capture_state() method")
+                cs = api.capture_state()
+                cs.state = "stop"
+                cs.port_names = port_list
+                api.set_capture_state(cs)
+            elif "stop_capture" in api_methods:
+                logger.info("Using stop_capture() method")
+                for port in port_list:
+                    api.stop_capture(port_name=port)
+            elif "control_state" in api_methods:
+                logger.info("Using control_state() method for capture")
+                cs = api.control_state()
+
+                if hasattr(cs, "CAPTURE") and hasattr(cs, "choice"):
+                    logger.debug("Setting control_state choice to CAPTURE")
+                    cs.choice = cs.CAPTURE
+
+                    if hasattr(cs, "capture"):
+                        logger.debug("Found capture attribute in control_state")
+
+                        if hasattr(cs.capture, "port_names"):
+                            logger.debug("Setting port_names in capture")
+                            cs.capture.port_names = port_list
+
+                        if hasattr(cs.capture, "state"):
+                            logger.debug("Setting capture state to stop")
+                            if hasattr(cs.capture, "STOP"):
+                                cs.capture.state = cs.capture.STOP
+                            else:
+                                cs.capture.state = "stop"
+
+                logger.info(
+                    f"Setting control state to stop capture on ports: {port_list}"
+                )
+                api.set_control_state(cs)
+            else:
+                logger.error("No compatible capture method found in API")
+                raise NotImplementedError("No method available to stop capture")
+        except Exception as e:
+            logger.error(f"Error stopping capture: {e}")
+            raise
+
+    def _get_capture(
+        self, api: Any, port_name: str, output_dir: Optional[str] = None
+    ) -> str:
+        """
+        Get capture data and save to a file.
+
+        Args:
+            api: Snappi API client
+            port_name: Name of port to get capture from
+            output_dir: Directory to save the capture file (default: /tmp)
 
         Returns:
-            Capture response object
+            File path where the capture was saved
         """
-        request = api.capture_request()
-        request.port_name = port_name
-        return api.stop_capture(request)
+        if output_dir is None:
+            logger.debug("Using default output directory: /tmp")
+            output_dir = "/tmp"
+
+        logger.debug(f"Creating output directory if it doesn't exist: {output_dir}")
+        os.makedirs(output_dir, exist_ok=True)
+
+        logger.debug("Generating unique file name for capture data")
+        file_name = f"capture_{port_name}_{uuid.uuid4().hex[:8]}.pcap"
+        file_path = os.path.join(output_dir, file_name)
+
+        logger.info(f"Getting capture data for port {port_name}")
+
+        logger.debug("Detecting available API methods for capture")
+        api_methods = [method for method in dir(api) if not method.startswith("_")]
+        logger.debug(f"Available API methods: {api_methods}")
+
+        try:
+            if "capture_request" in api_methods and "get_capture" in api_methods:
+                logger.info("Using capture_request() and get_capture() methods")
+                req = api.capture_request()
+                req.port_name = port_name
+                capture_data = api.get_capture(req)
+
+                logger.info(f"Saving capture data to {file_path}")
+                with open(file_path, "wb") as pcap:
+                    pcap.write(capture_data.read())
+
+            elif "control_state" in api_methods:
+                logger.info("Using control_state() method for capture retrieval")
+                cs = api.control_state()
+
+                if hasattr(cs, "CAPTURE") and hasattr(cs, "choice"):
+                    logger.debug("Setting control_state choice to CAPTURE")
+                    cs.choice = cs.CAPTURE
+
+                    if hasattr(cs, "capture"):
+                        logger.debug("Found capture attribute in control_state")
+
+                        if hasattr(cs.capture, "port_name"):
+                            logger.debug(f"Setting port_name to {port_name}")
+                            cs.capture.port_name = port_name
+
+                        if hasattr(cs.capture, "state"):
+                            logger.debug("Setting capture state to RETRIEVE")
+                            if hasattr(cs.capture, "RETRIEVE"):
+                                cs.capture.state = cs.capture.RETRIEVE
+                            else:
+                                cs.capture.state = "retrieve"
+
+                logger.info(
+                    f"Setting control state to retrieve capture on port {port_name}"
+                )
+                result = api.set_control_state(cs)
+
+                if hasattr(result, "capture") and hasattr(result.capture, "data"):
+                    logger.info(f"Saving capture data to {file_path}")
+                    with open(file_path, "wb") as pcap:
+                        pcap.write(result.capture.data)
+                else:
+                    raise ValueError(
+                        f"No capture data found in control_state result: {result}"
+                    )
+            else:
+                logger.error("No compatible capture retrieval method found in API")
+                raise NotImplementedError("No method available to get capture data")
+
+        except Exception as e:
+            logger.error(f"Error getting capture data: {e}")
+            raise
+
+        logger.info(f"Capture data saved to {file_path}")
+        return file_path
 
     async def get_traffic_generators_status(self):
         """Legacy method that maps to list_traffic_generators."""
@@ -539,73 +728,156 @@ class OtgClient:
             )
 
     async def start_capture(
-        self, port_name: str, target: Optional[str] = None
+        self, port_name: Union[str, List[str]], target: Optional[str] = None
     ) -> CaptureResponse:
         """
-        Start packet capture on a port.
+        Start packet capture on one or more ports.
 
         Args:
-            port_name: Name of port
+            port_name: Name or list of names of port(s) to capture on
             target: Optional target ID
 
         Returns:
             Capture response
         """
+        logger.debug("Determining response port name for multi-port capture")
+        response_port = (
+            port_name[0] if isinstance(port_name, list) and port_name else port_name
+        )
+        if isinstance(response_port, list):
+            logger.debug("Response port is still a list, extracting first element")
+            response_port = response_port[0] if response_port else ""
+
         logger.info(
-            f"Starting capture on port {port_name} on target {target or 'default'}"
+            f"Starting capture on port(s) {port_name} on target {target or 'default'}"
         )
 
         try:
             logger.info(f"Getting API client for {target or 'localhost'}")
             api = self._get_api_client(target or "localhost")
 
-            logger.info(f"Starting capture on port {port_name}")
-            self._start_capture(api, port_name)
+            logger.info(
+                f"Starting capture on port(s) {port_name} with improved implementation"
+            )
+            result = start_capture(api, port_name)
 
-            return CaptureResponse(status="success", port=port_name)
+            if result["status"] == "success":
+                return CaptureResponse(status="success", port=response_port)
+            else:
+                return CaptureResponse(
+                    status="error",
+                    port=response_port,
+                    data={"error": result.get("error", "Unknown error")},
+                )
         except Exception as e:
             logger.error(f"Error starting capture: {e}")
             logger.error(traceback.format_exc())
             return CaptureResponse(
-                status="error", port=port_name, data={"error": str(e)}
+                status="error", port=response_port, data={"error": str(e)}
             )
 
     async def stop_capture(
-        self, port_name: str, target: Optional[str] = None
+        self, port_name: Union[str, List[str]], target: Optional[str] = None
     ) -> CaptureResponse:
         """
-        Stop packet capture on a port.
+        Stop packet capture on one or more ports.
 
         Args:
-            port_name: Name of port
+            port_name: Name or list of names of port(s) to stop capture on
             target: Optional target ID
 
         Returns:
             Capture response
         """
+        logger.debug("Determining response port name for multi-port capture")
+        response_port = (
+            port_name[0] if isinstance(port_name, list) and port_name else port_name
+        )
+        if isinstance(response_port, list):
+            logger.debug("Response port is still a list, extracting first element")
+            response_port = response_port[0] if response_port else ""
+
         logger.info(
-            f"Stopping capture on port {port_name} on target {target or 'default'}"
+            f"Stopping capture on port(s) {port_name} on target {target or 'default'}"
         )
 
         try:
             logger.info(f"Getting API client for {target or 'localhost'}")
             api = self._get_api_client(target or "localhost")
 
-            logger.info(f"Stopping capture on port {port_name}")
-            response = self._stop_capture(api, port_name)
+            logger.info(
+                f"Stopping capture on port(s) {port_name} with improved implementation"
+            )
+            result = stop_capture(api, port_name)
 
-            logger.info("Processing capture response")
-            try:
-                data = response.serialize(encoding=response.DICT)  # type: ignore
-            except Exception as e:
-                logger.info(
-                    f"Error serializing capture response: {e}, using default status"
-                )
+            if result["status"] == "success":
                 data = {"status": "stopped"}
-
-            return CaptureResponse(status="success", port=port_name, data=data)
+                if "warnings" in result:
+                    data["warnings"] = result["warnings"]
+                return CaptureResponse(status="success", port=response_port, data=data)
+            else:
+                return CaptureResponse(
+                    status="error",
+                    port=response_port,
+                    data={"error": result.get("error", "Unknown error")},
+                )
         except Exception as e:
             logger.error(f"Error stopping capture: {e}")
+            logger.error(traceback.format_exc())
+            return CaptureResponse(
+                status="error", port=response_port, data={"error": str(e)}
+            )
+
+    async def get_capture(
+        self,
+        port_name: str,
+        output_dir: Optional[str] = None,
+        target: Optional[str] = None,
+        filename: Optional[str] = None,
+    ) -> CaptureResponse:
+        """
+        Get packet capture from a port and save it to a file.
+
+        Args:
+            port_name: Name of port to get capture from
+            output_dir: Directory to save the capture file (default: /tmp)
+            target: Optional target ID
+            filename: Optional custom filename for the capture file
+
+        Returns:
+            Capture response with file path where the capture was saved
+        """
+        logger.info(
+            f"Getting capture from port {port_name} on target {target or 'default'}"
+        )
+
+        try:
+            logger.info(f"Getting API client for {target or 'localhost'}")
+            api = self._get_api_client(target or "localhost")
+
+            logger.info(
+                f"Getting capture for port {port_name} with improved implementation"
+            )
+            result = get_capture(
+                api, port_name, output_dir=output_dir, filename=filename
+            )
+
+            if result["status"] == "success":
+                return CaptureResponse(
+                    status="success",
+                    port=port_name,
+                    data={"status": "captured", "file_path": result["file_path"]},
+                    file_path=result["file_path"],
+                    capture_id=result.get("capture_id"),
+                )
+            else:
+                return CaptureResponse(
+                    status="error",
+                    port=port_name,
+                    data={"error": result.get("error", "Unknown error")},
+                )
+        except Exception as e:
+            logger.error(f"Error getting capture: {e}")
             logger.error(traceback.format_exc())
             return CaptureResponse(
                 status="error", port=port_name, data={"error": str(e)}
@@ -1039,8 +1311,8 @@ class OtgClient:
         """
         logger.info(f"Checking health of {target or 'all targets'}")
 
-        logger.debug("Initializing HealthStatus with required status field")
-        health_status = HealthStatus(status="success")
+        logger.debug("Initializing HealthStatus with 'error' status by default")
+        health_status = HealthStatus(status="error")
 
         try:
             target_names = []
@@ -1076,11 +1348,11 @@ class OtgClient:
                     )
                     all_targets_healthy = False
 
-            if not all_targets_healthy:
-                logger.info(
-                    "One or more targets are unhealthy, setting status to 'error'"
-                )
-                health_status.status = "error"
+            if all_targets_healthy and target_names:
+                logger.info("All targets are healthy, setting status to 'success'")
+                health_status.status = "success"
+            else:
+                logger.info("One or more targets are unhealthy, status remains 'error'")
 
             logger.info(f"Health check complete for {len(target_names)} targets")
             return health_status

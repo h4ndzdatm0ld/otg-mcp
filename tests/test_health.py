@@ -1,129 +1,156 @@
-"""Test the health function to ensure proper status reporting."""
+"""Tests for the health check functionality in the OTG client."""
 
+import logging
 import pytest
-from unittest import mock
+from unittest.mock import MagicMock, patch
 
 from otg_mcp.client import OtgClient
 from otg_mcp.models import CapabilitiesVersionResponse
 
+logger = logging.getLogger(__name__)
+
 
 @pytest.fixture
-def mock_otg_client():
-    """Create a mock OtgClient for testing."""
-    mock_config = mock.MagicMock()
-    mock_config.schemas.schema_path = None
-    mock_config.targets.targets = {
-        "healthy-target": {},
-        "unhealthy-target": {}
+def mock_config():
+    """Create a mocked config."""
+    # Create a mock TargetsConfig to hold the targets dict
+    targets_config = MagicMock()
+    targets_config.targets = {
+        "target1": MagicMock(),
+        "target2": MagicMock(),
     }
-    
-    # Create a partial mock of OtgClient
-    client = OtgClient(config=mock_config)
-    client.get_available_targets = mock.AsyncMock(return_value={
-        "healthy-target": {},
-        "unhealthy-target": {}
-    })
-    
-    return client
+
+    # Create the main Config mock with the targets attribute
+    config = MagicMock()
+    config.targets = targets_config
+
+    return config
+
+
+@pytest.fixture
+def client(mock_config):
+    """Create client with mocked config."""
+    return OtgClient(mock_config)
 
 
 @pytest.mark.asyncio
-async def test_health_all_healthy(mock_otg_client):
-    """Test that status remains 'success' when all targets are healthy."""
-    # Mock the get_target_version to always succeed
-    mock_otg_client.get_target_version = mock.AsyncMock(return_value=CapabilitiesVersionResponse(
-        api_spec_version="1.0",
-        sdk_version="1.0",
-        app_version="1.0"
-    ))
-    
-    # Call the health function
-    result = await mock_otg_client.health()
-    
-    # Verify that overall status is success
-    assert result.status == "success"
-    assert "healthy-target" in result.targets
-    assert "unhealthy-target" in result.targets
-    assert result.targets["healthy-target"].healthy is True
-    assert result.targets["unhealthy-target"].healthy is True
-
-
-@pytest.mark.asyncio
-async def test_health_with_unhealthy_target(mock_otg_client):
-    """Test that status changes to 'error' when any target is unhealthy."""
-    # Mock the get_target_version to succeed for one target and fail for another
-    async def mock_get_target_version(target):
-        if target == "healthy-target":
-            return CapabilitiesVersionResponse(
-                api_spec_version="1.0",
-                sdk_version="1.0",
-                app_version="1.0"
-            )
-        else:
-            raise ValueError("Connection timeout to host")
-    
-    mock_otg_client.get_target_version = mock_get_target_version
-    
-    # Call the health function
-    result = await mock_otg_client.health()
-    
-    # Verify that overall status is error
-    assert result.status == "error"
-    assert "healthy-target" in result.targets
-    assert "unhealthy-target" in result.targets
-    assert result.targets["healthy-target"].healthy is True
-    assert result.targets["unhealthy-target"].healthy is False
-    assert "Connection timeout" in result.targets["unhealthy-target"].error
-
-
-@pytest.mark.asyncio
-async def test_health_with_exception(mock_otg_client):
-    """Test that status is set to 'error' when the health check itself fails."""
-    # Mock get_available_targets to raise an exception
-    mock_otg_client.get_available_targets = mock.AsyncMock(side_effect=Exception("Failed to get targets"))
-    
-    # Call the health function
-    result = await mock_otg_client.health()
-    
-    # Verify that overall status is error
-    assert result.status == "error"
-    assert result.targets == {}
-
-
-@pytest.mark.asyncio
-async def test_health_specific_target_healthy(mock_otg_client):
-    """Test health check for a specific target that is healthy."""
-    # Mock the get_target_version to succeed
-    mock_otg_client.get_target_version = mock.AsyncMock(return_value=CapabilitiesVersionResponse(
-        api_spec_version="1.0",
-        sdk_version="1.0",
-        app_version="1.0"
-    ))
-    
-    # Call the health function with a specific target
-    result = await mock_otg_client.health("healthy-target")
-    
-    # Verify that overall status is success
-    assert result.status == "success"
-    assert len(result.targets) == 1
-    assert "healthy-target" in result.targets
-    assert result.targets["healthy-target"].healthy is True
-
-
-@pytest.mark.asyncio
-async def test_health_specific_target_unhealthy(mock_otg_client):
-    """Test health check for a specific target that is unhealthy."""
-    # Mock the get_target_version to fail
-    mock_otg_client.get_target_version = mock.AsyncMock(
-        side_effect=ValueError("Connection timeout to host")
+async def test_health_all_healthy(client):
+    """Test health check when all targets are healthy."""
+    # Arrange
+    mock_version_info = CapabilitiesVersionResponse(
+        api_spec_version="1.*", sdk_version="1.28.2", app_version="1.28.0"
     )
-    
-    # Call the health function with a specific target
-    result = await mock_otg_client.health("unhealthy-target")
-    
-    # Verify that overall status is error
-    assert result.status == "error"
-    assert len(result.targets) == 1
-    assert "unhealthy-target" in result.targets
-    assert result.targets["unhealthy-target"].healthy is False
-    assert "Connection timeout" in result.targets["unhealthy-target"].error
+
+    # Mock the get_available_targets method to avoid it making internal get_target_version calls
+    mock_targets = {"target1": {}, "target2": {}}
+
+    with patch.object(
+        client, "get_available_targets", return_value=mock_targets
+    ), patch.object(
+        client, "get_target_version", return_value=mock_version_info
+    ) as mock_get_version:
+        # Act
+        result = await client.health()
+
+        # Assert
+        assert result.status == "success"
+        assert len(result.targets) == 2
+        assert all(target_info.healthy for target_info in result.targets.values())
+        assert mock_get_version.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_health_one_unhealthy(client):
+    """Test health check when one target is unhealthy."""
+    # Arrange
+    mock_version_info = CapabilitiesVersionResponse(
+        api_spec_version="1.*", sdk_version="1.28.2", app_version="1.28.0"
+    )
+
+    async def mock_get_target_version(target):
+        if target == "target1":
+            return mock_version_info
+        else:
+            raise Exception("Connection timeout")
+
+    with patch.object(
+        client, "get_target_version", side_effect=mock_get_target_version
+    ):
+        # Act
+        result = await client.health()
+
+        # Assert
+        assert result.status == "error"
+        assert len(result.targets) == 2
+        assert result.targets["target1"].healthy is True
+        assert result.targets["target2"].healthy is False
+        assert "Connection timeout" in result.targets["target2"].error
+
+
+@pytest.mark.asyncio
+async def test_health_all_unhealthy(client):
+    """Test health check when all targets are unhealthy."""
+    # Arrange
+    with patch.object(
+        client, "get_target_version", side_effect=Exception("Connection timeout")
+    ):
+        # Act
+        result = await client.health()
+
+        # Assert
+        assert result.status == "error"
+        assert len(result.targets) == 2
+        assert all(not target_info.healthy for target_info in result.targets.values())
+
+
+@pytest.mark.asyncio
+async def test_health_single_target_healthy(client):
+    """Test health check for a single target that is healthy."""
+    # Arrange
+    mock_version_info = CapabilitiesVersionResponse(
+        api_spec_version="1.*", sdk_version="1.28.2", app_version="1.28.0"
+    )
+
+    with patch.object(
+        client, "get_target_version", return_value=mock_version_info
+    ):
+        # Act
+        result = await client.health("target1")
+
+        # Assert
+        assert result.status == "success"
+        assert len(result.targets) == 1
+        assert "target1" in result.targets
+        assert result.targets["target1"].healthy is True
+
+
+@pytest.mark.asyncio
+async def test_health_single_target_unhealthy(client):
+    """Test health check for a single target that is unhealthy."""
+    # Arrange
+    with patch.object(
+        client, "get_target_version", side_effect=Exception("Connection timeout")
+    ):
+        # Act
+        result = await client.health("target1")
+
+        # Assert
+        assert result.status == "error"
+        assert len(result.targets) == 1
+        assert "target1" in result.targets
+        assert result.targets["target1"].healthy is False
+
+
+@pytest.mark.asyncio
+async def test_health_exception(client):
+    """Test health check when an unexpected exception occurs."""
+    # Arrange
+    with patch.object(
+        client, "get_available_targets", side_effect=Exception("Unexpected error")
+    ):
+        # Act
+        result = await client.health()
+
+        # Assert
+        assert result.status == "error"
+        assert len(result.targets) == 0
