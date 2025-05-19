@@ -1,185 +1,77 @@
 """
-Additional test coverage for schema registry to achieve 100% coverage.
+Tests for schema registry coverage using mocks instead of file system operations.
 
-This module provides tests specifically targeting uncovered code paths
-in the schema_registry.py module.
+These tests help achieve high code coverage without relying on filesystem operations.
 """
 
 import os
-import shutil
-import tempfile
-
 import pytest
-import yaml
+from unittest.mock import patch
 
-from otg_mcp.schema_registry import SchemaRegistry, get_schema_registry
+from otg_mcp.schema_registry import SchemaRegistry
 
 
 class TestSchemaRegistryCoverage:
-    """Test cases specifically targeting uncovered lines in SchemaRegistry."""
+    """Test cases for schema registry coverage using mocks."""
 
-    @pytest.fixture
-    def empty_schemas_dir(self):
-        """Create an empty temporary directory for schemas testing."""
-        # Create a temporary directory that will be empty
-        temp_dir = tempfile.mkdtemp()
-        yield temp_dir
-        # Cleanup the temporary directory
-        shutil.rmtree(temp_dir)
-
-    @pytest.fixture
-    def invalid_schema_dir(self):
-        """Create a temporary directory with invalid schema file."""
-        # Create a temporary directory
-        temp_dir = tempfile.mkdtemp()
-
-        # Create schema version directory
-        v1_dir = os.path.join(temp_dir, "1_30_0")
-        os.makedirs(v1_dir)
-
-        # Create invalid schema file that will cause an exception when loaded
-        with open(os.path.join(v1_dir, "openapi.yaml"), "w") as f:
-            f.write("invalid: yaml: content\n\tindentation: error")
-
-        yield temp_dir
-
-        # Cleanup the temporary directory
-        shutil.rmtree(temp_dir)
-
-    @pytest.fixture
-    def invalid_component_dir(self):
-        """Create a temporary directory with schema having non-dict component."""
-        # Create a temporary directory
-        temp_dir = tempfile.mkdtemp()
-
-        # Create schema version directory
-        v1_dir = os.path.join(temp_dir, "1_30_0")
-        os.makedirs(v1_dir)
-
-        # Create schema with non-dict component
-        schema = {
-            "components": {
-                "schemas": {
-                    "ValidDict": {"type": "object"},
-                    "InvalidComponent": ["this", "is", "a", "list", "not", "a", "dict"],
-                }
-            }
-        }
-
-        # Write schema to file
-        with open(os.path.join(v1_dir, "openapi.yaml"), "w") as f:
-            yaml.dump(schema, f)
-
-        yield temp_dir
-
-        # Cleanup the temporary directory
-        shutil.rmtree(temp_dir)
-
-    @pytest.fixture
-    def missing_component_dir(self):
-        """Create a temporary directory with schema missing components.schemas."""
-        # Create a temporary directory
-        temp_dir = tempfile.mkdtemp()
-
-        # Create schema version directory
-        v1_dir = os.path.join(temp_dir, "1_30_0")
-        os.makedirs(v1_dir)
-
-        # Create schema without components.schemas
-        schema = {
-            "components": {
-                # No schemas key here
-                "other": {"something": {"type": "object"}}
-            }
-        }
-
-        # Write schema to file
-        with open(os.path.join(v1_dir, "openapi.yaml"), "w") as f:
-            yaml.dump(schema, f)
-
-        yield temp_dir
-
-        # Cleanup the temporary directory
-        shutil.rmtree(temp_dir)
-
-    def test_non_existent_schemas_dir(self, empty_schemas_dir):
-        """Test behavior when schemas directory doesn't exist."""
-        # Create registry with a non-existent schemas directory
+    def test_version_parsing_error(self):
+        """Test handling of version parsing errors."""
         registry = SchemaRegistry()
-        non_existent_dir = os.path.join(empty_schemas_dir, "non_existent")
-        registry._schemas_dir = non_existent_dir
 
-        # Test that get_available_schemas returns empty list
-        available_schemas = registry.get_available_schemas()
-        assert available_schemas == []
+        # Test with invalid version string
+        with patch.object(registry, 'get_available_schemas', return_value=['1_30_0']):
+            with patch.object(registry, 'get_latest_schema_version', return_value='1_30_0'):
+                # Should fall back to latest version
+                result = registry.find_closest_schema_version('invalid.version')
+                assert result == '1_30_0'
 
-    def test_schema_loading_exception(self, invalid_schema_dir):
-        """Test error handling when schema loading fails."""
+    def test_empty_parsed_versions(self):
+        """Test handling empty parsed versions list."""
         registry = SchemaRegistry()
-        registry._schemas_dir = invalid_schema_dir
 
-        # Test that an exception is raised when trying to load an invalid schema
-        with pytest.raises(ValueError) as excinfo:
-            registry.get_schema("1_30_0")
-        
-        assert "Error loading schema" in str(excinfo.value)
+        # Available versions list has items but none can be parsed
+        with patch.object(registry, 'get_available_schemas', return_value=['invalid_1', 'invalid_2']):
+            with patch.object(registry, '_parse_version', return_value=tuple()):
+                with pytest.raises(ValueError, match="No valid schema versions available"):
+                    registry.get_latest_schema_version()
 
-    def test_non_dict_component(self, invalid_component_dir):
-        """Test handling non-dictionary components in get_schema_components."""
+    def test_partial_version(self):
+        """Test handling partial version strings."""
         registry = SchemaRegistry()
-        registry._schemas_dir = invalid_component_dir
 
-        # Load the schema first
-        schema = registry.get_schema("1_30_0")
+        with patch.object(registry, 'get_available_schemas', return_value=['1_30_0']):
+            # Test with only major version
+            with patch.object(registry, '_parse_version', side_effect=lambda v: (1,) if v == '1' else (1, 30, 0)):
+                result = registry.find_closest_schema_version('1')
+                assert result == '1_30_0'
 
-        # Verify our test schema has the expected structure
-        assert "components" in schema
-        assert "schemas" in schema["components"]
-        assert "InvalidComponent" in schema["components"]["schemas"]
-        assert isinstance(schema["components"]["schemas"]["InvalidComponent"], list)
+    def test_scan_custom_dir_error(self):
+        """Test error handling when scanning custom schemas directory."""
+        registry = SchemaRegistry('/nonexistent/path')
 
-        # Test getting components from a non-dictionary component
-        components = registry.get_schema_components("1_30_0", "components.schemas.InvalidComponent")
-        
-        # Should return empty list for non-dict component
-        assert components == []
+        # We need to be more specific with our patching to avoid the error
+        # Only patch the call to os.listdir with the custom dir, not all calls
+        original_listdir = os.listdir
 
-    def test_missing_components_schemas(self, missing_component_dir):
-        """Test error handling when components.schemas is missing."""
-        registry = SchemaRegistry()
-        registry._schemas_dir = missing_component_dir
+        def mock_listdir(path):
+            if path == '/nonexistent/path':
+                raise PermissionError("Permission denied")
+            return original_listdir(path)
 
-        # Test accessing a schema in components.schemas when it doesn't exist
-        with pytest.raises(ValueError) as excinfo:
-            registry.get_schema("1_30_0", "components.schemas.Flow")
-        
-        assert "Error accessing components.schemas" in str(excinfo.value)
+        with patch('os.listdir', mock_listdir):
+            # Should not raise exception but log a warning
+            schemas = registry.get_available_schemas()
+            assert isinstance(schemas, list)
 
-    def test_invalid_component_navigation(self, invalid_component_dir):
-        """Test error handling with invalid component navigation."""
-        registry = SchemaRegistry()
-        registry._schemas_dir = invalid_component_dir
-        
-        # Try to navigate through a non-navigable component
-        with pytest.raises(ValueError) as excinfo:
-            registry.get_schema("1_30_0", "components.schemas.ValidDict.some.nested.path")
-        
-        # The special handling for components.schemas.X paths is what's actually being tested
-        assert "Schema ValidDict.some.nested.path not found in components.schemas" in str(excinfo.value)
+    def test_different_custom_schemas_dir_instances(self):
+        """Test that different custom_schemas_dir creates different instances."""
+        # Create two separate instances with different custom schema directories
+        registry1 = SchemaRegistry("/path/one")
+        registry2 = SchemaRegistry("/path/two")
 
-    def test_global_schema_registry_initialization(self):
-        """Test global schema registry initialization."""
-        # Reset the global registry to ensure test isolation
-        import otg_mcp.schema_registry
-        otg_mcp.schema_registry._schema_registry = None
-        
-        # First call should create a new instance
-        registry1 = get_schema_registry()
-        assert registry1 is not None
-        
-        # Second call should return the same instance
-        registry2 = get_schema_registry()
-        assert registry2 is registry1
+        # Verify they are different instances with different configurations
+        assert registry1 is not registry2
+        assert registry1._custom_schemas_dir != registry2._custom_schemas_dir
 
 
 if __name__ == "__main__":

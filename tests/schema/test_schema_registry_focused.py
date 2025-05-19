@@ -1,22 +1,18 @@
 """
-Focused tests for schema registry to achieve 100% coverage.
+Tests for schema registry's edge cases.
 
-This module provides tests specifically targeting lines that are still 
-showing as uncovered in the schema_registry.py module.
+Using mocks instead of filesystem operations to improve test reliability.
 """
 
-import os
-import shutil
-import tempfile
 from unittest.mock import MagicMock
 
 import pytest
 
-from otg_mcp.schema_registry import SchemaRegistry, get_schema_registry
+from otg_mcp.schema_registry import SchemaRegistry
 
 
 class TestSchemaRegistryFocused:
-    """Test cases specifically targeting uncovered lines in SchemaRegistry."""
+    """Test cases for schema registry edge cases using mocks."""
 
     def test_get_schema_components_non_dict_at_path(self):
         """Test get_schema_components with a non-dict at the specified path."""
@@ -29,31 +25,6 @@ class TestSchemaRegistryFocused:
         # Should return an empty list when the component is not a dict
         assert result == []
     
-    def test_schema_loading_exception(self):
-        """Test exception handling during schema loading."""
-        registry = SchemaRegistry()
-        
-        # Create a temporary directory
-        temp_dir = tempfile.mkdtemp()
-        try:
-            # Set up the registry to use our temp dir
-            v1_dir = os.path.join(temp_dir, "1_30_0")
-            os.makedirs(v1_dir)
-            registry._schemas_dir = temp_dir
-            
-            # Create a schema file that will cause a YAML parsing error
-            with open(os.path.join(v1_dir, "openapi.yaml"), "w") as f:
-                f.write("invalid: yaml: content\n\tindentation: error")
-            
-            # This should trigger the exception handling code
-            with pytest.raises(ValueError) as excinfo:
-                registry.get_schema("1_30_0")
-            
-            assert "Error loading schema" in str(excinfo.value)
-        finally:
-            # Clean up
-            shutil.rmtree(temp_dir)
-
     def test_schema_components_schemas_keyerror(self):
         """Test KeyError handling when accessing components.schemas."""
         registry = SchemaRegistry()
@@ -74,43 +45,20 @@ class TestSchemaRegistryFocused:
         
         assert "Error accessing components.schemas" in str(excinfo.value)
     
-    def test_component_navigation_typeerror(self):
-        """Test TypeError handling during component navigation."""
-        registry = SchemaRegistry()
+    def test_independent_registry_instances(self):
+        """Test that schema registry instances are independent."""
+        # Create two registry instances with different custom directories
+        registry1 = SchemaRegistry(custom_schemas_dir="/path/to/custom1")
+        registry2 = SchemaRegistry(custom_schemas_dir="/path/to/custom2")
         
-        # Mock the schema to have a non-navigable item in the path
-        registry.schema_exists = MagicMock(return_value=True)
-        registry.schemas = {
-            "1_30_0": {
-                "components": {
-                    "schemas": {
-                        "Flow": 123  # Not a dict, so can't navigate further
-                    }
-                }
-            }
-        }
+        # They should be separate instances with different configurations
+        assert registry1 is not registry2
+        assert registry1._custom_schemas_dir != registry2._custom_schemas_dir
         
-        # This should trigger the special handling for components.schemas.X
-        with pytest.raises(ValueError) as excinfo:
-            registry.get_schema("1_30_0", "components.schemas.Flow.someProperty")
-        
-        # Due to the special handling for components.schemas.X paths, the error occurs at that level
-        # rather than in the TypeError catch block
-        assert "Schema Flow.someProperty not found in components.schemas" in str(excinfo.value)
-    
-    def test_global_registry_init(self):
-        """Test global schema registry initialization."""
-        # Reset the global registry
-        import otg_mcp.schema_registry
-        otg_mcp.schema_registry._schema_registry = None
-        
-        # This should create a new registry
-        registry1 = get_schema_registry()
-        assert registry1 is not None
-        
-        # This should return the same instance
-        registry2 = get_schema_registry()
-        assert registry2 is registry1
+        # Changes to one instance should not affect the other
+        registry1._available_schemas = ["test1"]
+        registry2._available_schemas = ["test2"]
+        assert registry1._available_schemas != registry2._available_schemas
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ This file contains tests for the updated list_schemas_for_target functionality
 that focuses solely on returning components.schemas entries.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -35,44 +35,48 @@ def mock_schema():
 
 
 @pytest.fixture
-def client():
-    """Create a client instance for testing."""
+def mock_schema_registry():
+    """Create a mock schema registry for testing."""
+    mock_registry = MagicMock()
+    return mock_registry
+
+
+@pytest.fixture
+def client(mock_schema_registry):
+    """Create a client instance for testing with a mock schema registry."""
     from otg_mcp.config import Config
     mock_config = Config()
-    return OtgClient(config=mock_config)
+    return OtgClient(config=mock_config, schema_registry=mock_schema_registry)
 
 
 @pytest.mark.asyncio
-async def test_list_schemas_for_target_returns_only_schemas(client, mock_schema):
+async def test_list_schemas_for_target_returns_only_schemas(client, mock_schema_registry, mock_schema):
     """Test that list_schemas_for_target returns only the schemas from components.schemas."""
     # Setup mocks with AsyncMock
     client._get_target_config = AsyncMock(return_value={"apiVersion": "1.30.0"})
 
-    # Mock the schema registry
-    with patch("otg_mcp.client.get_schema_registry") as mock_get_registry:
-        mock_registry = MagicMock()
-        mock_registry.get_schema.return_value = mock_schema
-        mock_get_registry.return_value = mock_registry
+    # Configure the mock schema registry
+    mock_schema_registry.get_schema.return_value = mock_schema
 
-        # Call the method
-        result = await client.list_schemas_for_target("test-target")
+    # Call the method
+    result = await client.list_schemas_for_target("test-target")
 
-        # Verify the result is a list containing only the schemas
-        assert isinstance(result, list)
-        assert sorted(result) == sorted(
-            ["Flow", "Flow.Router", "Bgp.V4Peer", "Device.BgpRouter"]
-        )
+    # Verify the result is a list containing only the schemas
+    assert isinstance(result, list)
+    assert sorted(result) == sorted(
+        ["Flow", "Flow.Router", "Bgp.V4Peer", "Device.BgpRouter"]
+    )
 
-        # Verify that we're not returning any other information
-        assert not any(key in result for key in ["openapi", "info", "paths"])
-        assert not any(key in result for key in ["top_level", "components", "servers"])
+    # Verify that we're not returning any other information
+    assert not any(key in result for key in ["openapi", "info", "paths"])
+    assert not any(key in result for key in ["top_level", "components", "servers"])
 
-        # Make sure the schema registry was called with the correct version
-        mock_registry.get_schema.assert_called_once_with("1.30.0")
+    # Make sure the schema registry was called with the correct version
+    mock_schema_registry.get_schema.assert_called_once_with("1.30.0")
 
 
 @pytest.mark.asyncio
-async def test_list_schemas_for_target_empty_components(client):
+async def test_list_schemas_for_target_empty_components(client, mock_schema_registry):
     """Test handling when the schema has no components section."""
     # Setup mocks with AsyncMock
     client._get_target_config = AsyncMock(return_value={"apiVersion": "1.30.0"})
@@ -83,18 +87,15 @@ async def test_list_schemas_for_target_empty_components(client):
         "paths": {},
     }
 
-    # Mock the schema registry
-    with patch("otg_mcp.client.get_schema_registry") as mock_get_registry:
-        mock_registry = MagicMock()
-        mock_registry.get_schema.return_value = schema_without_components
-        mock_get_registry.return_value = mock_registry
+    # Configure the mock schema registry
+    mock_schema_registry.get_schema.return_value = schema_without_components
 
-        # Call the method
-        result = await client.list_schemas_for_target("test-target")
+    # Call the method
+    result = await client.list_schemas_for_target("test-target")
 
-        # Verify the result is an empty list
-        assert isinstance(result, list)
-        assert len(result) == 0
+    # Verify the result is an empty list
+    assert isinstance(result, list)
+    assert len(result) == 0
 
 
 @pytest.mark.asyncio

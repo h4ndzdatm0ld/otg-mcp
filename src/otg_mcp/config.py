@@ -5,7 +5,7 @@ import socket
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, ConfigDict, Field, validator, ValidationError
 from pydantic_settings import BaseSettings
 
 logging.basicConfig(
@@ -77,12 +77,11 @@ class PortConfig(BaseModel):
 class TargetConfig(BaseModel):
     """Configuration for a traffic generator target."""
 
-    apiVersion: str = Field(
-        default="1_30_0", description="API schema version to use for this target"
-    )
     ports: Dict[str, PortConfig] = Field(
         default_factory=dict, description="Port configurations mapped by port name"
     )
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class TargetsConfig(BaseSettings):
@@ -103,6 +102,14 @@ class DirectConnectionConfig(BaseSettings):
     DEFAULT_PORT: int = Field(default=443, description="Default port to use")
 
 
+class SchemaConfig(BaseSettings):
+    """Configuration for schema handling."""
+
+    schema_path: Optional[str] = Field(
+        default=None, description="Path to directory containing custom schema files"
+    )
+
+
 class Config:
     """Main configuration for the MCP server."""
 
@@ -110,6 +117,7 @@ class Config:
         self.logging = LoggingConfig()
         self.direct = DirectConnectionConfig()
         self.targets = TargetsConfig()
+        self.schemas = SchemaConfig()
 
         logger.info("Initializing configuration")
         if config_file:
@@ -169,43 +177,37 @@ class Config:
                     continue
 
                 logger.info(f"Creating target config for {hostname}")
-                api_version = target_data.get("apiVersion", "1.30.0")
-                logger.info(f"Target {hostname} using API version: {api_version}")
-                target_config = TargetConfig(apiVersion=api_version)
 
-                logger.info(f"Processing port configurations for {hostname}")
-                if "ports" in target_data:
-                    for port_name, port_data in target_data["ports"].items():
-                        if not isinstance(port_data, dict):
-                            error_msg = f"Port '{port_name}' for target '{hostname}' must be a dictionary"
-                            logger.error(error_msg)
-                            continue
-
-                        if "location" not in port_data:
-                            error_msg = f"Port '{port_name}' for target '{hostname}' must contain a 'location' property"
-                            logger.error(error_msg)
-                            continue
-
-                        logger.debug(f"Setting name for port {port_name}")
-                        name = port_data.get("name", port_name)
-
-                        logger.debug(
-                            f"Creating port config for {port_name} with location {port_data['location']}"
-                        )
-                        target_config.ports[port_name] = PortConfig(
-                            location=port_data["location"], name=name, interface=None
-                        )
-                else:
-                    logger.warning(
-                        f"Target '{hostname}' does not contain a 'ports' dictionary"
+                logger.info("Validating target configuration using Pydantic model")
+                try:
+                    target_config = TargetConfig(**target_data)
+                except ValidationError as e:
+                    error_msg = (
+                        f"Invalid target configuration for '{hostname}': {str(e)}"
                     )
+                    logger.error(error_msg)
+                    if "extra fields not permitted" in str(e):
+                        logger.error(
+                            "The configuration contains fields that are not allowed. "
+                            "apiVersion should not be included in target configuration."
+                        )
+                    continue
 
                 logger.info(f"Adding target {hostname} to configuration")
                 self.targets.targets[hostname] = target_config
 
-            logger.info(
-                f"Successfully loaded configuration with {len(self.targets.targets)} targets"
-            )
+            logger.info("Checking for schema path in configuration")
+            if "schema_path" in config_data:
+                schema_path = config_data["schema_path"]
+                logger.info(f"Found schema_path in config: {schema_path}")
+                if os.path.exists(schema_path):
+                    self.schemas.schema_path = schema_path
+                    logger.info(f"Using custom schema path: {schema_path}")
+                else:
+                    logger.warning(
+                        f"Specified schema path does not exist: {schema_path}"
+                    )
+
             logger.info(
                 f"Successfully loaded configuration with {len(self.targets.targets)} targets"
             )

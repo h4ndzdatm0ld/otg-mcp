@@ -53,8 +53,20 @@ class OtgMcpServer:
             logger.info("Creating the FastMCP instance")
             self.mcp: FastMCP = FastMCP("otg-mcp-server", log_level="INFO")
 
-            logger.info("Initializing OTG client")
-            self.client = OtgClient(config=config)
+            logger.info("Initializing schema registry")
+            custom_schema_path = None
+            if hasattr(config, "schemas") and config.schemas.schema_path:
+                custom_schema_path = config.schemas.schema_path
+                logger.info(
+                    f"Using custom schema path from config: {custom_schema_path}"
+                )
+
+            from otg_mcp.schema_registry import SchemaRegistry
+
+            self.schema_registry = SchemaRegistry(custom_schema_path)
+
+            logger.info("Initializing OTG client with schema registry")
+            self.client = OtgClient(config=config, schema_registry=self.schema_registry)
 
             logger.info("Registering all endpoints")
             self._register_tools()

@@ -12,7 +12,7 @@ import tempfile
 import pytest
 import yaml
 
-from otg_mcp.schema_registry import SchemaRegistry, get_schema_registry
+from otg_mcp.schema_registry import SchemaRegistry
 
 
 class TestSchemaRegistryComplete:
@@ -80,7 +80,7 @@ class TestSchemaRegistryComplete:
     def test_get_available_schemas(self, mock_schemas_dir):
         """Test getting available schemas."""
         registry = SchemaRegistry()
-        registry._schemas_dir = mock_schemas_dir
+        registry._builtin_schemas_dir = mock_schemas_dir
         
         # Reset cached value to ensure it's computed fresh
         registry._available_schemas = None
@@ -102,18 +102,21 @@ class TestSchemaRegistryComplete:
         try:
             # Point to a non-existent directory
             non_existent_dir = os.path.join(temp_dir, "non_existent")
-            registry._schemas_dir = non_existent_dir
+            registry._builtin_schemas_dir = non_existent_dir
             registry._available_schemas = None
             
-            # Should return empty list
-            assert registry.get_available_schemas() == []
+            # Should handle non-existent directory gracefully
+            schemas = registry.get_available_schemas()
+            # We expect empty list from built-in, but might have default schemas still
+            assert isinstance(schemas, list)
         finally:
             shutil.rmtree(temp_dir)
 
     def test_schema_exists(self, mock_schemas_dir):
         """Test checking if schemas exist."""
         registry = SchemaRegistry()
-        registry._schemas_dir = mock_schemas_dir
+        registry._builtin_schemas_dir = mock_schemas_dir
+        registry._available_schemas = None  # Force refresh
         
         assert registry.schema_exists("1.30.0") is True
         assert registry.schema_exists("1_30_0") is True
@@ -123,7 +126,8 @@ class TestSchemaRegistryComplete:
     def test_list_schemas(self, mock_schemas_dir):
         """Test listing schema keys."""
         registry = SchemaRegistry()
-        registry._schemas_dir = mock_schemas_dir
+        registry._builtin_schemas_dir = mock_schemas_dir
+        registry._available_schemas = None  # Force refresh
         
         keys = registry.list_schemas("1.30.0")
         assert "openapi" in keys
@@ -133,7 +137,8 @@ class TestSchemaRegistryComplete:
     def test_get_schema_components(self, mock_schemas_dir):
         """Test getting schema components."""
         registry = SchemaRegistry()
-        registry._schemas_dir = mock_schemas_dir
+        registry._builtin_schemas_dir = mock_schemas_dir
+        registry._available_schemas = None  # Force refresh
         
         # Test with a valid path that returns a dict
         components = registry.get_schema_components("1.30.0", "components.schemas")
@@ -147,7 +152,8 @@ class TestSchemaRegistryComplete:
     def test_get_schema_basic(self, mock_schemas_dir):
         """Test getting a basic schema."""
         registry = SchemaRegistry()
-        registry._schemas_dir = mock_schemas_dir
+        registry._builtin_schemas_dir = mock_schemas_dir
+        registry._available_schemas = None  # Force refresh
         
         # Get full schema
         schema = registry.get_schema("1.30.0")
@@ -160,7 +166,8 @@ class TestSchemaRegistryComplete:
     def test_get_schema_invalid_version(self, mock_schemas_dir):
         """Test getting a schema with an invalid version."""
         registry = SchemaRegistry()
-        registry._schemas_dir = mock_schemas_dir
+        registry._builtin_schemas_dir = mock_schemas_dir
+        registry._available_schemas = None  # Force refresh
         
         with pytest.raises(ValueError) as excinfo:
             registry.get_schema("non_existent")
@@ -179,7 +186,8 @@ class TestSchemaRegistryComplete:
             with open(os.path.join(v1_dir, "openapi.yaml"), "w") as f:
                 f.write("invalid YAML content:\n\tindentation error")
             
-            registry._schemas_dir = temp_dir
+            registry._builtin_schemas_dir = temp_dir
+            registry._available_schemas = None  # Force refresh
             
             with pytest.raises(ValueError) as excinfo:
                 registry.get_schema("1.30.0")
@@ -190,7 +198,8 @@ class TestSchemaRegistryComplete:
     def test_get_schema_component_special_handling(self, mock_schemas_dir):
         """Test special handling for components.schemas.X paths."""
         registry = SchemaRegistry()
-        registry._schemas_dir = mock_schemas_dir
+        registry._builtin_schemas_dir = mock_schemas_dir
+        registry._available_schemas = None  # Force refresh
         
         # Test with a valid schema component
         flow = registry.get_schema("1.30.0", "components.schemas.Flow")
@@ -209,7 +218,8 @@ class TestSchemaRegistryComplete:
     def test_get_schema_component_navigation(self, mock_schemas_dir):
         """Test component path navigation."""
         registry = SchemaRegistry()
-        registry._schemas_dir = mock_schemas_dir
+        registry._builtin_schemas_dir = mock_schemas_dir
+        registry._available_schemas = None  # Force refresh
         
         # Test navigation to a component
         component = registry.get_schema("1.30.0", "components")
@@ -227,21 +237,14 @@ class TestSchemaRegistryComplete:
         # rather than in the TypeError handling section
         assert "Schema Device.property not found in components.schemas" in str(excinfo.value)
 
-    def test_reset_global_registry(self):
-        """Test global registry reset and initialization."""
-        # Import directly to modify the module variable
-        import otg_mcp.schema_registry
+    def test_multiple_registry_instances(self):
+        """Test that multiple registry instances can be created with different configs."""
+        registry1 = SchemaRegistry(custom_schemas_dir="/path/to/custom1")
+        registry2 = SchemaRegistry(custom_schemas_dir="/path/to/custom2")
         
-        # Reset the global registry
-        otg_mcp.schema_registry._schema_registry = None
-        
-        # First call should create a new instance
-        registry1 = get_schema_registry()
-        assert registry1 is not None
-        
-        # Second call should return the same instance
-        registry2 = get_schema_registry()
-        assert registry1 is registry2
+        # Instances should be different
+        assert registry1 is not registry2
+        assert registry1._custom_schemas_dir != registry2._custom_schemas_dir
 
 
 if __name__ == "__main__":

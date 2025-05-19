@@ -1,0 +1,31 @@
+{
+  "schemas": {
+    "schema_path": "/path/to/custom/schemas/directory"
+  },
+  "targets": {
+    "ixnetwork": {
+      "ports": {
+        "port1": {
+          "location": "1/1",
+          "name": "Port 1"
+        },
+        "port2": {
+          "location": "1/2",
+          "name": "Port 2"
+        }
+      }
+    },
+    "keysight-ixia": {
+      "ports": {
+        "port1": {
+          "location": "10.0.0.1/1/1",
+          "name": "Port 1"
+        },
+        "port2": {
+          "location": "10.0.0.1/1/2",
+          "name": "Port 2"
+        }
+      }
+    }
+  }
+}

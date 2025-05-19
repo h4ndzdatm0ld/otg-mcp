@@ -9,8 +9,7 @@ import tempfile
 import pytest
 import yaml
 
-from otg_mcp.config import TargetConfig
-from otg_mcp.schema_registry import SchemaRegistry, get_schema_registry
+from otg_mcp.schema_registry import SchemaRegistry
 
 
 class TestSchemaRegistry:
@@ -78,7 +77,8 @@ class TestSchemaRegistry:
         """Test getting available schemas."""
         # Create registry with mocked schemas directory
         registry = SchemaRegistry()
-        registry._schemas_dir = mock_schemas_dir
+        registry._builtin_schemas_dir = mock_schemas_dir
+        registry._available_schemas = None  # Force refresh
 
         # Test available schemas
         available_schemas = registry.get_available_schemas()
@@ -89,7 +89,8 @@ class TestSchemaRegistry:
     def test_schema_exists(self, mock_schemas_dir):
         """Test checking if a schema exists."""
         registry = SchemaRegistry()
-        registry._schemas_dir = mock_schemas_dir
+        registry._builtin_schemas_dir = mock_schemas_dir
+        registry._available_schemas = None  # Force refresh
 
         assert registry.schema_exists("1_30_0") is True
         assert registry.schema_exists("1_31_0") is True
@@ -98,7 +99,8 @@ class TestSchemaRegistry:
     def test_get_schema(self, mock_schemas_dir):
         """Test getting a schema."""
         registry = SchemaRegistry()
-        registry._schemas_dir = mock_schemas_dir
+        registry._builtin_schemas_dir = mock_schemas_dir
+        registry._available_schemas = None  # Force refresh
 
         # Get complete schema
         schema = registry.get_schema("1_30_0")
@@ -112,7 +114,8 @@ class TestSchemaRegistry:
     def test_get_invalid_schema(self, mock_schemas_dir):
         """Test getting an invalid schema."""
         registry = SchemaRegistry()
-        registry._schemas_dir = mock_schemas_dir
+        registry._builtin_schemas_dir = mock_schemas_dir
+        registry._available_schemas = None  # Force refresh
 
         with pytest.raises(ValueError):
             registry.get_schema("non_existent")
@@ -120,40 +123,25 @@ class TestSchemaRegistry:
     def test_get_invalid_component(self, mock_schemas_dir):
         """Test getting an invalid component."""
         registry = SchemaRegistry()
-        registry._schemas_dir = mock_schemas_dir
+        registry._builtin_schemas_dir = mock_schemas_dir
+        registry._available_schemas = None  # Force refresh
 
         with pytest.raises(ValueError):
             registry.get_schema("1_30_0", "components.schemas.NonExistentComponent")
 
-    def test_global_registry_instance(self):
-        """Test the global registry instance."""
-        registry1 = get_schema_registry()
-        registry2 = get_schema_registry()
+    def test_shared_registry_instances(self):
+        """Test that different SchemaRegistry instances are independent."""
+        registry1 = SchemaRegistry(custom_schemas_dir="/tmp/custom1")
+        registry2 = SchemaRegistry(custom_schemas_dir="/tmp/custom2")
 
-        # Should be the same instance
-        assert registry1 is registry2
+        # Should be different instances with different settings
+        assert registry1 is not registry2
+        assert registry1._custom_schemas_dir != registry2._custom_schemas_dir
 
 
-class TestTargetConfigApiVersion:
-    """Test case for the TargetConfig API version."""
-
-    def test_default_api_version(self):
-        """Test that TargetConfig has a default apiVersion."""
-        config = TargetConfig()
-        assert hasattr(config, "apiVersion")
-        assert config.apiVersion == "1_30_0"
-
-    def test_custom_api_version(self):
-        """Test setting a custom apiVersion."""
-        config = TargetConfig(apiVersion="1_31_0")
-        assert config.apiVersion == "1_31_0"
-
-    def test_api_version_in_model_dump(self):
-        """Test apiVersion is included in model dump representation."""
-        config = TargetConfig(apiVersion="1_31_0")
-        config_dict = config.model_dump()
-        assert "apiVersion" in config_dict
-        assert config_dict["apiVersion"] == "1_31_0"
+# TestTargetConfigApiVersion class has been removed since apiVersion is no longer a field
+# in the TargetConfig model. The version is now determined dynamically based on the target's
+# actual version or the latest available schema version.
 
 
 # Test class for schema tools integration with server removed
