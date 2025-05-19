@@ -1077,7 +1077,9 @@ class OtgClient:
                     all_targets_healthy = False
 
             if not all_targets_healthy:
-                logger.info("One or more targets are unhealthy, setting status to 'error'")
+                logger.info(
+                    "One or more targets are unhealthy, setting status to 'error'"
+                )
                 health_status.status = "error"
 
             logger.info(f"Health check complete for {len(target_names)} targets")

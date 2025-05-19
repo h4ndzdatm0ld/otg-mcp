@@ -4,7 +4,7 @@ import pytest
 from unittest import mock
 
 from otg_mcp.client import OtgClient
-from otg_mcp.models import CapabilitiesVersionResponse, HealthStatus
+from otg_mcp.models import CapabilitiesVersionResponse
 
 
 @pytest.fixture
