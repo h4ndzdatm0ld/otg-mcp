@@ -1,4 +1,4 @@
-# OTG MCP Server
+# Open Traffic Generator MCP Server
 
 [![codecov](https://codecov.io/gh/h4ndzdatm0ld/otg-mcp/graph/badge.svg?token=FCrRSKjGZz)](https://codecov.io/gh/h4ndzdatm0ld/otg-mcp) [![CI](https://github.com/h4ndzdatm0ld/otg-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/h4ndzdatm0ld/otg-mcp/actions/workflows/ci.yml)
 
@@ -6,7 +6,7 @@ MCP (Model Context Protocol) server implementation for Open Traffic Generator (O
 
 ## Overview
 
-The OTG MCP Server is a Python-based Model Context Protocol (MCP) to provide access to Open Traffic Generators (OTG) through a unified API. The server connects to traffic generators using a standardized configuration interface, providing a consistent way to interact with these devices regardless of vendor or location.
+The OTG MCP Server is a Python-based Model Context Protocol (MCP) to provide access to Open Traffic Generators (OTG) through a unified API. The server connects to traffic generators using a standardized configuration interface, providing a consistent way to interact with any traffic generator that respects OpenTrafficGenerator Models.
 
 ## Features
 
@@ -14,7 +14,6 @@ The OTG MCP Server is a Python-based Model Context Protocol (MCP) to provide acc
 - **OTG API Implementation**: Complete implementation of the Open Traffic Generator API
 - **Multi-Target Support**: Connect to multiple traffic generators simultaneously
 - **Type-Safe Models**: Pydantic models for configuration, metrics, and response data
-- **Resilient Connections**: Automatic reconnect and retry logic for reliability
 
 ## Documentation
 
@@ -31,6 +30,9 @@ Example configuration (`examples/trafficGeneratorConfig.json`):
 
 ```json
 {
+  "schemas": {
+    "schema_path": "/path/to/custom/schemas/directory"
+  },
   "targets": {
     "traffic-gen-1.example.com:8443": {
       "ports": {
@@ -57,19 +59,50 @@ Example configuration (`examples/trafficGeneratorConfig.json`):
 ```
 
 Key elements in the configuration:
+
+- `schemas`: Settings for schema management
+  - `schema_path`: Optional path to directory containing custom schema files
 - `targets`: Map of traffic generator targets
 - `ports`: Configuration for each port on the target, with location and name
 
+### Custom Schema Support
+
+The OTG MCP Server supports loading schema files from user-defined directories, which is useful when:
+
+- You have custom schemas for specific traffic generator versions
+- You need to test with unreleased API versions
+- You have special extensions to the standard OTG schemas
+
+To use custom schemas:
+
+1. Add a `schemas` section to your configuration file with the `schema_path` field pointing to your schema directory
+2. Organize your custom schema files in the same version-based structure as the built-in schemas
+3. Custom schemas will take priority over built-in schemas when both exist
+
+Example directory structure for custom schemas:
+```
+/path/to/custom/schemas/
+├── 1_28_0/
+│   └── openapi.yaml
+├── 1_29_0/
+│   └── openapi.yaml
+└── 1_31_0/  # Custom schema version not available in built-in schemas
+    └── openapi.yaml
+```
+
 ### API Version Handling
 
-The OTG MCP Server now automatically detects API versions from traffic generator targets:
+The OTG MCP Server automatically detects API versions from traffic generator targets:
 
 1. When connecting to a target, the server queries its API version
-2. If an exact matching schema version is available locally (versions 1.28.0 and newer are supported), it uses that schema
-3. If no exact match exists, it defaults to using the latest locally available schema
-4. This approach ensures optimal compatibility without manual configuration
+2. If an exact matching schema version is available (versions 1.28.0 and newer are supported), it uses that schema
+3. If no exact match exists, it follows this priority order to find the closest match:
+   - Schema with same major.minor version and equal or lower patch version
+   - Schema with same major version and highest available minor version
+   - Latest available schema version as fallback
+4. This process checks both custom schemas (if configured) and built-in schemas, with custom schemas taking priority
 
-This enhancement eliminates the need to specify API versions in configuration files, reducing errors and ensuring the correct schema is always used.
+This intelligent version matching ensures optimal compatibility while allowing for custom schema extensions when needed.
 
 ## Testing with deployIxiaC
 
@@ -164,38 +197,16 @@ When integrating with an MCP client application, you can use the following confi
       "stop_capture",
       "stop_traffic"
     ],
-    "disabled": false,
-    "timeout": 60,
     "command": "python",
     "args": [
       "/path/to/otg-mcp/src/otg_mcp/server.py",
       "--config-file",
-      "/path/to/otg-mcp/examples/trafficGeneratorConfig.json"
+      "/path/to/otg-mcp/examples/trafficGeneratorConfigWithCustomSchemas.json"
     ],
-    "transportType": "stdio"
   }
 }
 ```
 
-Key elements in this configuration:
-- `autoApprove`: Tools that can be executed without explicit approval
-- `timeout`: Maximum time in seconds allowed for operations
-- `command` and `args`: How to launch the OTG MCP Server
-- `transportType`: Communication method (stdio or SSE)
-
-### Running the Server
-
-```bash
-# Start the server with a configuration file
-python -m otg_mcp.server --config-file examples/trafficGeneratorConfig.json
-```
-
-### Running Examples
-
-```bash
-# Run the simple gateway test example
-python examples/simple_gateway_test.py
-```
 
 ## Development
 
@@ -213,7 +224,9 @@ python examples/simple_gateway_test.py
 │       ├── models/          # Data models
 │       │   ├── __init__.py  # Model exports
 │       │   └── models.py    # Model definitions
-│       ├── schemas/         # API schemas
+│       ├── schemas/         # Built-in API schemas
+│       │   ├── 1_28_0/      # Schema version 1.28.0
+│       │   ├── 1_29_0/      # Schema version 1.29.0
 │       │   └── 1_30_0/      # Schema version 1.30.0
 │       ├── __init__.py      # Package initialization
 │       ├── __main__.py      # Entry point

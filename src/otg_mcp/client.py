@@ -1054,6 +1054,7 @@ class OtgClient:
                 logger.info(f"Found {len(target_names)} targets to check")
 
             logger.info("Beginning health checks for all targets")
+            all_targets_healthy = True
             for target_name in target_names:
                 logger.info(f"Checking health for target: {target_name}")
                 try:
@@ -1073,6 +1074,13 @@ class OtgClient:
                     health_status.targets[target_name] = TargetHealthInfo(
                         name=target_name, healthy=False, error=str(e), version_info=None
                     )
+                    all_targets_healthy = False
+
+            if not all_targets_healthy:
+                logger.info(
+                    "One or more targets are unhealthy, setting status to 'error'"
+                )
+                health_status.status = "error"
 
             logger.info(f"Health check complete for {len(target_names)} targets")
             return health_status
@@ -1080,7 +1088,7 @@ class OtgClient:
         except Exception as e:
             logger.error(f"Health check failed with error: {str(e)}")
             logger.error(traceback.format_exc())
-            return HealthStatus(targets={})
+            return HealthStatus(status="error", targets={})
 
     async def get_metrics(
         self,

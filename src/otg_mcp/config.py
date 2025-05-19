@@ -1,9 +1,7 @@
 import json
 import logging
 import os
-import socket
-from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, validator, ValidationError
 from pydantic_settings import BaseSettings
@@ -32,17 +30,6 @@ class LoggingConfig(BaseSettings):
             raise ValueError(f"LOG_LEVEL must be one of {valid_levels}")
         logger.info(f"Validated log level: {upper_v}")
         return upper_v
-
-
-@dataclass
-class DirectConnectionInfo:
-    """Information about a direct connection to a traffic generator."""
-
-    hostname: str
-    name: str
-    instance_id: str
-    is_direct_hostname: bool = True
-    local_port: Optional[int] = None  # noqa: E501
 
 
 class PortConfig(BaseModel):
@@ -93,15 +80,6 @@ class TargetsConfig(BaseSettings):
     )
 
 
-class DirectConnectionConfig(BaseSettings):
-    """Configuration for direct connections to traffic generators."""
-
-    DEFAULT_HOST: str = Field(
-        default="localhost", description="Default hostname to use"
-    )
-    DEFAULT_PORT: int = Field(default=443, description="Default port to use")
-
-
 class SchemaConfig(BaseSettings):
     """Configuration for schema handling."""
 
@@ -115,7 +93,6 @@ class Config:
 
     def __init__(self, config_file: Optional[str] = None):
         self.logging = LoggingConfig()
-        self.direct = DirectConnectionConfig()
         self.targets = TargetsConfig()
         self.schemas = SchemaConfig()
 
@@ -263,36 +240,3 @@ class Config:
             print(f"Stack trace: {traceback.format_exc()}")
             logger.critical(f"Failed to set up logging: {str(e)}")
             logger.critical(f"Stack trace: {traceback.format_exc()}")
-
-    def discover_instances(self) -> List[DirectConnectionInfo]:
-        """
-        Discover available traffic generators.
-
-        This method returns an empty list since we don't use AWS-based discovery.
-        """
-        logger.info("Instance discovery disabled (using direct connections only)")
-        return []
-
-    def get_available_port(self) -> int:
-        """Get an available port starting from a range."""
-        logger.debug("Starting port discovery from port 8000")
-        port = 8000
-        while True:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                logger.debug(f"Checking if port {port} is available")
-                if s.connect_ex(("localhost", port)) != 0:
-                    logger.info(f"Found available port: {port}")
-                    return port
-                port += 1
-                if port > 65535:
-                    logger.error("No available ports found")
-                    raise RuntimeError("No available ports found")
-
-
-logger.info("Creating a global config instance")
-config = Config()
-
-
-def get_config() -> Config:
-    """Get the global config instance."""
-    return config

@@ -14,7 +14,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from otg_mcp.client import OtgClient
-from otg_mcp.config import DirectConnectionInfo, PortConfig, TargetConfig, config
+from otg_mcp.config import Config, PortConfig, TargetConfig
 
 
 @pytest.fixture
@@ -97,29 +97,22 @@ def mock_api_wrapper():
 
 
 @pytest.fixture
-def router():
+def test_config():
+    """Create a test configuration instance."""
+    return Config()
+
+
+@pytest.fixture
+def router(test_config):
     """Create a test router."""
-    return OtgClient(config=config)
+    return OtgClient(config=test_config)
 
 
 @pytest.fixture
-def direct_connection():
-    """Create a test direct connection."""
-    return DirectConnectionInfo(
-        hostname="test-host.example.com",
-        name="test-host",
-        instance_id="test-host.example.com",
-    )
-
-
-@pytest.fixture
-def example_target_config():
+def example_target_config(test_config):
     """Create example target configuration."""
-    # Clear any existing targets
-    config.targets.targets = {}
-
     # Add example target
-    config.targets.targets["test-target.example.com:8443"] = TargetConfig(
+    test_config.targets.targets["test-target.example.com:8443"] = TargetConfig(
         ports={
             "p1": PortConfig(interface="enp0s31f6", location="enp0s31f6", name="p1"),
             "p2": PortConfig(
@@ -129,7 +122,7 @@ def example_target_config():
     )
 
     # Return the config for use in tests
-    return config.targets
+    return test_config.targets
 
 
 # Define custom marker for integration tests
