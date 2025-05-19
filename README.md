@@ -1,4 +1,4 @@
-# OTG MCP Server
+# Open Traffic Generator MCP Server
 
 [![codecov](https://codecov.io/gh/h4ndzdatm0ld/otg-mcp/graph/badge.svg?token=FCrRSKjGZz)](https://codecov.io/gh/h4ndzdatm0ld/otg-mcp) [![CI](https://github.com/h4ndzdatm0ld/otg-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/h4ndzdatm0ld/otg-mcp/actions/workflows/ci.yml)
 
@@ -6,7 +6,7 @@ MCP (Model Context Protocol) server implementation for Open Traffic Generator (O
 
 ## Overview
 
-The OTG MCP Server is a Python-based Model Context Protocol (MCP) to provide access to Open Traffic Generators (OTG) through a unified API. The server connects to traffic generators using a standardized configuration interface, providing a consistent way to interact with these devices regardless of vendor or location.
+The OTG MCP Server is a Python-based Model Context Protocol (MCP) to provide access to Open Traffic Generators (OTG) through a unified API. The server connects to traffic generators using a standardized configuration interface, providing a consistent way to interact with any traffic generator that respects OpenTrafficGenerator Models.
 
 ## Features
 
@@ -57,8 +57,10 @@ Example configuration (`examples/trafficGeneratorConfig.json`):
 ```
 
 Key elements in the configuration:
+
 - `targets`: Map of traffic generator targets
 - `ports`: Configuration for each port on the target, with location and name
+- `schemas-path`: Optional path to custom schemas for the target
 
 ### API Version Handling
 
@@ -164,15 +166,12 @@ When integrating with an MCP client application, you can use the following confi
       "stop_capture",
       "stop_traffic"
     ],
-    "disabled": false,
-    "timeout": 60,
     "command": "python",
     "args": [
       "/path/to/otg-mcp/src/otg_mcp/server.py",
       "--config-file",
       "/path/to/otg-mcp/examples/trafficGeneratorConfig.json"
     ],
-    "transportType": "stdio"
   }
 }
 ```
@@ -184,6 +183,8 @@ Key elements in this configuration:
 - `transportType`: Communication method (stdio or SSE)
 
 ### Running the Server
+
+> NOTE: This brings little value, maybe to debug logs.
 
 ```bash
 # Start the server with a configuration file
