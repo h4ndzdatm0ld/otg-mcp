@@ -6,17 +6,28 @@ various formats of schema names (simple vs fully qualified paths).
 """
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from otg_mcp.client import OtgClient
 
 
 @pytest.fixture
-def client():
-    """Create a client instance for testing."""
+def mock_schema_registry():
+    """Create a mock schema registry for testing."""
+    mock_registry = MagicMock()
+    # Setup schema content for different schema names
+    mock_registry.get_schema.side_effect = lambda version, component=None: {
+        "description": f"Mock schema for {component or 'all'}"
+    }
+    return mock_registry
+
+
+@pytest.fixture
+def client(mock_schema_registry):
+    """Create a client instance for testing with a mock schema registry."""
     from otg_mcp.config import Config
     mock_config = Config()
-    return OtgClient(config=mock_config)
+    return OtgClient(config=mock_config, schema_registry=mock_schema_registry)
 
 
 @pytest.mark.asyncio
@@ -95,6 +106,14 @@ async def test_schema_not_found_handling(client, mock_schema_registry):
     """Test handling of non-existent schemas."""
     # Setup mocks with AsyncMock
     client._get_target_config = AsyncMock(return_value={"apiVersion": "1.30.0"})
+
+    # Configure mock to raise an exception for a non-existent schema
+    def mock_get_schema(version, component=None):
+        if component == "components.schemas.NonExistentSchema" or component == "NonExistentSchema":
+            raise ValueError("Schema not found")
+        return {"description": f"Mock schema for {component or 'all'}"}
+
+    mock_schema_registry.get_schema.side_effect = mock_get_schema
 
     # Call the method with a non-existent schema
     result = await client.get_schemas_for_target("test-target", ["NonExistentSchema"])

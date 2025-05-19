@@ -27,7 +27,7 @@ from otg_mcp.models import (
     TrafficGeneratorInfo,
     TrafficGeneratorStatus,
 )
-from otg_mcp.schema_registry import get_schema_registry
+from otg_mcp.schema_registry import SchemaRegistry
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -44,12 +44,25 @@ class OtgClient:
 
     config: Config
     api_clients: Dict[str, Any] = field(default_factory=dict)
-    _schema_registry: Any = field(default=None, init=False)
+    schema_registry: Optional[SchemaRegistry] = field(default=None)
 
     def __post_init__(self):
         """Initialize after dataclass initialization."""
         logger.info("Initializing OTG client")
-        self._schema_registry = get_schema_registry()
+
+        # Create a SchemaRegistry only if one wasn't provided
+        if self.schema_registry is None:
+            logger.info("No SchemaRegistry provided, creating one")
+            custom_schema_path = None
+            if hasattr(self.config, "schemas") and self.config.schemas.schema_path:
+                custom_schema_path = self.config.schemas.schema_path
+                logger.info(f"Using custom schema path from config: {custom_schema_path}")
+
+            self.schema_registry = SchemaRegistry(custom_schema_path)
+            logger.info("Created new SchemaRegistry instance")
+        else:
+            logger.info("Using provided SchemaRegistry instance")
+
         logger.info("OTG client initialized")
 
     def _get_api_client(self, target: str):
@@ -716,41 +729,7 @@ class OtgClient:
             logger.error(traceback.format_exc())
             return {}
 
-    def _get_latest_schema_version(self) -> str:
-        """
-        Get the latest available schema version.
-
-        Finds all available schemas, sorts them based on version numbers,
-        and returns the highest version.
-
-        Returns:
-            The latest schema version in normalized format (e.g., "1_30_0")
-
-        Raises:
-            ValueError: If no schema versions are available
-        """
-        logger.info("Finding latest available schema version")
-
-        schema_registry = get_schema_registry()
-        available_versions = schema_registry.get_available_schemas()
-
-        if not available_versions:
-            error_msg = "No schema versions available"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-
-        logger.info("Parsing version strings to support proper version ordering")
-
-        def parse_version(version_str):
-            parts = version_str.split("_")
-            return tuple(int(part) for part in parts if part.isdigit())
-
-        logger.info("Sorting versions by numeric components with highest version last")
-        sorted_versions = sorted(available_versions, key=parse_version)
-        latest_version = sorted_versions[-1]
-
-        logger.info(f"Latest available schema version is: {latest_version}")
-        return latest_version
+    # Removed _get_latest_schema_version method - now using SchemaRegistry.get_latest_schema_version
 
     async def _get_target_config(self, target_name: str) -> Optional[Dict[str, Any]]:
         """
@@ -771,7 +750,7 @@ class OtgClient:
             if target_name in targets:
                 logger.info(f"Found configuration for target: {target_name}")
                 target_config = targets[target_name]
-                schema_registry = get_schema_registry()
+                schema_registry = self.schema_registry
 
                 logger.info(
                     "Initializing apiVersion if not already present in target config"
@@ -795,34 +774,42 @@ class OtgClient:
                         f"Target {target_name} reports API version: {actual_api_version}"
                     )
 
+                    # We know schema_registry can't be None here because it was initialized in __post_init__
+                    assert schema_registry is not None, "SchemaRegistry should not be None at this point"
                     logger.info(
-                        "Checking if a schema exists for the reported API version"
+                        "Checking for schema match for the reported API version"
                     )
                     if schema_registry.schema_exists(normalized_version):
                         logger.info(
-                            f"Found schema for actual version: {actual_api_version}"
+                            f"Found exact schema for actual version: {actual_api_version}"
                         )
                         target_config["apiVersion"] = actual_api_version
                     else:
                         logger.info(
-                            "No exact schema match found, selecting latest available schema"
+                            "No exact schema match found, finding closest available schema"
                         )
-                        latest_version = self._get_latest_schema_version()
-                        logger.warning(
-                            f"No schema for actual version {actual_api_version}. "
-                            f"Using latest available schema version: {latest_version}"
+                        assert schema_registry is not None, "SchemaRegistry should not be None at this point"
+                        closest_version = schema_registry.find_closest_schema_version(
+                            normalized_version
                         )
-                        target_config["apiVersion"] = latest_version.replace("_", ".")
+                        closest_version_dotted = closest_version.replace("_", ".")
+                        logger.info(
+                            f"No exact schema for version {actual_api_version}. "
+                            f"Using closest matching version: {closest_version_dotted}"
+                        )
+                        target_config["apiVersion"] = closest_version_dotted
                 except Exception as e:
                     logger.info(
                         "Exception during API version detection, falling back to latest schema"
                     )
-                    latest_version = self._get_latest_schema_version()
+                    assert schema_registry is not None, "SchemaRegistry should not be None at this point"
+                    latest_version = schema_registry.get_latest_schema_version()
+                    latest_version_dotted = latest_version.replace("_", ".")
                     logger.warning(
                         f"Failed to get API version from target {target_name}: {str(e)}. "
-                        f"Using latest available schema version: {latest_version}"
+                        f"Using latest available schema version: {latest_version_dotted}"
                     )
-                    target_config["apiVersion"] = latest_version.replace("_", ".")
+                    target_config["apiVersion"] = latest_version_dotted
 
                 return target_config
 
@@ -865,10 +852,12 @@ class OtgClient:
 
         result = {}
         try:
-            registry = get_schema_registry()
+            registry = self.schema_registry
             for schema_name in schema_names:
                 logger.info(f"Retrieving schema {schema_name} for target {target_name}")
                 try:
+                    # Ensure registry is not None
+                    assert registry is not None, "Schema registry should not be None"
 
                     if "." not in schema_name or not schema_name.startswith(
                         "components.schemas."
@@ -885,7 +874,9 @@ class OtgClient:
                         )
                 except Exception as e:
                     logger.warning(f"Error retrieving schema {schema_name}: {str(e)}")
-                    result[schema_name] = {"error": str(e)}
+                    # Create error dictionary for exception
+                    error_msg = str(e)
+                    result[schema_name] = {"error": error_msg}
 
             return result
         except Exception as e:
@@ -922,7 +913,9 @@ class OtgClient:
         logger.info(f"Using API version {api_version} for target {target_name}")
 
         try:
-            registry = get_schema_registry()
+            registry = self.schema_registry
+            # Ensure registry is not None
+            assert registry is not None, "Schema registry should not be None"
             schema = registry.get_schema(api_version)
 
             if (
@@ -1006,7 +999,9 @@ class OtgClient:
         logger.info(f"Using API version {api_version} for target {target_name}")
 
         try:
-            registry = get_schema_registry()
+            registry = self.schema_registry
+            # Ensure registry is not None
+            assert registry is not None, "Schema registry should not be None"
             return registry.get_schema_components(api_version, path_prefix)
         except Exception as e:
             error_msg = (

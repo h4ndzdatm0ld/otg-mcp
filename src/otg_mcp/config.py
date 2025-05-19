@@ -102,6 +102,14 @@ class DirectConnectionConfig(BaseSettings):
     DEFAULT_PORT: int = Field(default=443, description="Default port to use")
 
 
+class SchemaConfig(BaseSettings):
+    """Configuration for schema handling."""
+
+    schema_path: Optional[str] = Field(
+        default=None, description="Path to directory containing custom schema files"
+    )
+
+
 class Config:
     """Main configuration for the MCP server."""
 
@@ -109,6 +117,7 @@ class Config:
         self.logging = LoggingConfig()
         self.direct = DirectConnectionConfig()
         self.targets = TargetsConfig()
+        self.schemas = SchemaConfig()
 
         logger.info("Initializing configuration")
         if config_file:
@@ -187,9 +196,16 @@ class Config:
                 logger.info(f"Adding target {hostname} to configuration")
                 self.targets.targets[hostname] = target_config
 
-            logger.info(
-                f"Successfully loaded configuration with {len(self.targets.targets)} targets"
-            )
+            # Process schema path if present in config
+            if "schema_path" in config_data:
+                schema_path = config_data["schema_path"]
+                logger.info(f"Found schema_path in config: {schema_path}")
+                if os.path.exists(schema_path):
+                    self.schemas.schema_path = schema_path
+                    logger.info(f"Using custom schema path: {schema_path}")
+                else:
+                    logger.warning(f"Specified schema path does not exist: {schema_path}")
+
             logger.info(
                 f"Successfully loaded configuration with {len(self.targets.targets)} targets"
             )
