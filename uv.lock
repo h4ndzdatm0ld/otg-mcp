@@ -1511,7 +1511,7 @@ wheels = [
 
 [[package]]
 name = "otg-mcp"
-version = "1.0"
+version = "0.1.2a0"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
