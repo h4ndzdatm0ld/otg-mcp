@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "otg-mcp"
-version = "1.0"
+version = "0.1.2a0"
 readme = "README.md"
 description = "Open Traffic Generator - Model Context Protocol"
 authors = [
@@ -155,7 +155,9 @@ dependencies = [
 [tool.hatch.env.collectors.custom]
 path = ".hatch/hatch_plugin.py"
 
-# This is necessary to use 'uv' as the resolver if this is the top-level package
-# in a monorepo (which is usually the case).  Remove this if copying the
-# package into a monorepo
-[tool.uv.workspace]
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple/"
+publish-url = "https://pypi.org/legacy/"
+explicit = true
