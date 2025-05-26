@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "otg-mcp"
-version = "0.1.2a0"
+version = "0.1.3a0"
 readme = "README.md"
 description = "Open Traffic Generator - Model Context Protocol"
 authors = [
