@@ -19,9 +19,8 @@ dependencies = [
   "tenacity>=8.2.2",
   "snappi>=1.28.2",
   "mcp[cli]>=1.6.0",
-  "types-pyyaml>=6.0.12.20250516",
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"
 
 [project.optional-dependencies]
 dev = [
@@ -30,6 +29,7 @@ dev = [
   "ruff>=0.11.7",
   "mypy>=1.0.0",
   "pip>=25.1.1",
+  "types-pyyaml>=6.0.12.20250516",
 ]
 
 test = [

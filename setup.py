@@ -6,7 +6,7 @@ setup(
     description="Open Traffic Generator - Model Context Protocol",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
-    python_requires=">=3.11",
+    python_requires=">=3.11,<3.13",
     extras_require={
         "dev": [
             "openapi-python-client>=0.14.0",
