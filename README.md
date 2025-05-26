@@ -275,6 +275,15 @@ The project maintains high code quality standards:
 4. Use logging rather than comments for important operations
 5. Update documentation for any API or behavior changes
 
+## Release Process
+
+For information about version management and releasing new versions of this package, see [RELEASE.md](./RELEASE.md).
+
+Key points:
+- Version management is handled through `pyproject.toml` only
+- Follows semantic versioning with pre-release tags (`a0`, `b0`, `rc0`)
+- Automated CI/CD pipeline handles testing and PyPI publishing
+
 ## License
 
 This project is licensed under the terms of the license included in the repository.
