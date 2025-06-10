@@ -360,7 +360,7 @@ pyyaml==6.0.2
     # via
     #   airtrain
     #   snappi
-requests==2.32.3
+requests==2.32.4
     # via
     #   airtrain
     #   cachecontrol
