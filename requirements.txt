@@ -287,7 +287,7 @@ proto-plus==1.26.1
     #   google-ai-generativelanguage
     #   google-api-core
     #   google-cloud-firestore
-protobuf==4.24.4
+protobuf==4.25.8
     # via
     #   google-ai-generativelanguage
     #   google-api-core
