@@ -99,7 +99,7 @@ eval-type-backport==0.2.2
     # via together
 exceptiongroup==1.2.2
     # via fastmcp
-fastmcp==2.2.5
+fastmcp==2.13.0
     # via hatch.envs.default
 filelock==3.18.0
     # via together
