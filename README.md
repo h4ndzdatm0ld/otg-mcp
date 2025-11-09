@@ -62,8 +62,32 @@ Key elements in the configuration:
 
 - `schemas`: Settings for schema management
   - `schema_path`: Optional path to directory containing custom schema files
-- `targets`: Map of traffic generator targets
+- `targets`: Map of traffic generator targets (optional - can be empty or omitted)
 - `ports`: Configuration for each port on the target, with location and name
+
+### Dynamic Target Configuration
+
+The `targets` section in the configuration file is now **optional**. If you start the server without defining targets or with an empty targets section, the `get_available_targets` tool will return helpful information indicating that targets need to be configured:
+
+```json
+{
+  "schemas": {
+    "schema_path": "/path/to/custom/schemas/directory"
+  }
+}
+```
+
+When called with no targets configured, the server will respond with:
+- Status indicating no targets are configured
+- Suggestions for adding targets to your configuration
+- Information about future enhancements, including a plugin architecture for dynamic target discovery (e.g., NetBox integration)
+
+This allows you to:
+1. Start the server before targets are available
+2. Get clear feedback about what's needed
+3. Add targets to your configuration as they become available
+
+**Future Enhancement**: The server is designed to support a plugin architecture for dynamic target discovery from external sources like NetBox or other inventory management systems. This would enable automatic registration of traffic generator targets without manual configuration.
 
 ### Custom Schema Support
 

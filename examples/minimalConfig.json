@@ -1,0 +1,5 @@
+{
+  "schemas": {
+    "schema_path": "/path/to/custom/schemas/directory"
+  }
+}
