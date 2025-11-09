@@ -72,7 +72,12 @@ class TargetConfig(BaseModel):
 
 
 class TargetsConfig(BaseSettings):
-    """Configuration for all available traffic generator targets."""
+    """Configuration for all available traffic generator targets.
+    
+    Note: Future enhancement could include a plugin architecture to dynamically
+    discover targets from external sources like NetBox or other inventory systems.
+    This would allow for automatic target registration without manual configuration.
+    """
 
     targets: Dict[str, TargetConfig] = Field(
         default_factory=dict,
@@ -139,9 +144,11 @@ class Config:
 
             logger.info("Validating configuration structure")
             if "targets" not in config_data:
-                error_msg = "Configuration file must contain a 'targets' property"
-                logger.critical(error_msg)
-                raise ValueError(error_msg)
+                logger.info(
+                    "No 'targets' section found in configuration file. "
+                    "Targets can be provided dynamically or added to the config later."
+                )
+                config_data["targets"] = {}
 
             logger.info("Clearing existing targets and initializing new configuration")
             self.targets = TargetsConfig()

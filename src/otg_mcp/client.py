@@ -939,11 +939,24 @@ class OtgClient:
 
         This method always clears the client cache to ensure fresh connections.
 
+        If no targets are configured, returns a helpful message indicating that
+        targets should be provided via configuration file or potentially through
+        a plugin architecture (e.g., NetBox integration - future enhancement).
+
         Returns:
             Dictionary mapping target names to their configurations, including:
             - ports: Port configurations for the target
             - available: Whether the target is currently reachable
             - apiVersion: API version detected from the target (if available)
+
+            If no targets are configured, returns:
+            {
+                "_info": {
+                    "status": "no_targets_configured",
+                    "message": "No traffic generator targets configured...",
+                    "suggestions": [...]
+                }
+            }
         """
         logger.info("Getting available traffic generator targets")
 
@@ -953,6 +966,29 @@ class OtgClient:
         result = {}
         try:
             logger.info("Reading targets from config")
+            
+            # Check if no targets are configured
+            if not self.config.targets.targets:
+                logger.info("No targets configured in configuration file")
+                return {
+                    "_info": {
+                        "status": "no_targets_configured",
+                        "message": (
+                            "No traffic generator targets are currently configured. "
+                            "Please provide target configurations to use this service."
+                        ),
+                        "suggestions": [
+                            "Add targets to your configuration file under the 'targets' section",
+                            "Ensure each target includes hostname:port and port configurations",
+                            "Example: {'targets': {'host.example.com:8443': {'ports': {...}}}}",
+                        ],
+                        "future_enhancements": [
+                            "Plugin architecture for dynamic target discovery (e.g., NetBox integration)",
+                            "Runtime target registration API",
+                        ],
+                    }
+                }
+            
             for target_name, target_config in self.config.targets.targets.items():
                 logger.info(f"Processing target: {target_name}")
 
