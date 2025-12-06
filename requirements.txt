@@ -456,7 +456,7 @@ typing-inspection==0.4.0
     #   pydantic-settings
 uritemplate==4.1.1
     # via google-api-python-client
-urllib3==2.4.0
+urllib3==2.6.0
     # via
     #   botocore
     #   requests
