@@ -101,7 +101,7 @@ exceptiongroup==1.2.2
     # via fastmcp
 fastmcp==2.2.5
     # via hatch.envs.default
-filelock==3.18.0
+filelock==3.20.3
     # via together
 firebase-admin==6.8.0
     # via airtrain
