@@ -300,7 +300,7 @@ protobuf==4.24.4
     #   snappi
 pyarrow==19.0.1
     # via together
-pyasn1==0.6.1
+pyasn1==0.6.2
     # via
     #   pyasn1-modules
     #   rsa
