@@ -86,7 +86,7 @@ colorama==0.4.6
     # via airtrain
 coverage==7.8.0
     # via pytest-cov
-cryptography==44.0.2
+cryptography==46.0.5
     # via pyjwt
 distro==1.9.0
     # via
