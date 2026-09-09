@@ -157,8 +157,8 @@ cd <repository-directory>
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Install dependencies
-pip install -e ".[dev]"
+# Install dependencies (dev tooling plus pytest)
+pip install -e ".[dev,test]"
 ```
 
 ### Docker Container
@@ -186,6 +186,7 @@ When integrating with an MCP client application, you can use the following confi
   "OpenTrafficGenerator - MCP": {
     "autoApprove": [
       "get_available_targets",
+      "get_capture",
       "get_config",
       "get_metrics",
       "get_schemas_for_target",
@@ -199,13 +200,18 @@ When integrating with an MCP client application, you can use the following confi
     ],
     "command": "python",
     "args": [
-      "/path/to/otg-mcp/src/otg_mcp/server.py",
+      "-m",
+      "otg_mcp",
       "--config-file",
       "/path/to/otg-mcp/examples/trafficGeneratorConfigWithCustomSchemas.json"
-    ],
+    ]
   }
 }
 ```
+
+The `autoApprove` list must match the tool names registered by the server. Tool
+names are derived from `OtgMcpServer` methods by stripping the `tool_` prefix, so
+adding or renaming a `tool_*` method means updating this list.
 
 
 ## Development
@@ -244,9 +250,8 @@ When integrating with an MCP client application, you can use the following confi
 ├── Dockerfile               # Docker build file
 ├── LICENSE                  # License file
 ├── README.md                # This file
-├── pyproject.toml           # Project metadata
-├── requirements.txt         # Dependencies
-└── setup.py                 # Package setup
+├── pyproject.toml           # Project metadata, dependencies, and version
+└── requirements.txt         # Lock file for the default hatch environment
 ```
 
 ### Key Components

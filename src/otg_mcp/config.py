@@ -3,7 +3,14 @@ import logging
 import os
 from typing import Dict, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, validator, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+)
 from pydantic_settings import BaseSettings
 
 logging.basicConfig(
@@ -21,8 +28,20 @@ class LoggingConfig(BaseSettings):
         description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
     )
 
-    @validator("LOG_LEVEL")
+    @field_validator("LOG_LEVEL")
+    @classmethod
     def validate_log_level(cls, v: str) -> str:
+        """Reject log levels outside the standard set.
+
+        Args:
+            v: Candidate log level
+
+        Returns:
+            The level upper-cased
+
+        Raises:
+            ValueError: If the level is not a standard logging level
+        """
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         upper_v = v.upper()
         if upper_v not in valid_levels:
@@ -36,28 +55,60 @@ class PortConfig(BaseModel):
     """Configuration for a port on a traffic generator."""
 
     location: Optional[str] = Field(
-        None, description="Location of the port (hostname:port)"
+        None,
+        description="Location of the port (hostname:port)",
+        validate_default=True,
     )
-    name: Optional[str] = Field(None, description="Name of the port")
+    name: Optional[str] = Field(
+        None, description="Name of the port", validate_default=True
+    )
     interface: Optional[str] = Field(
         None, description="Interface name (backward compatibility)"
     )
 
-    @validator("location", pre=True, always=True)
-    def validate_location(cls, v, values):
-        """Validate location, using interface if location is not provided."""
-        if v is None and "interface" in values and values["interface"] is not None:
-            return values["interface"]
+    @field_validator("location", mode="before")
+    @classmethod
+    def validate_location(
+        cls, v: Optional[str], info: ValidationInfo
+    ) -> Optional[str]:
+        """Fall back to interface when location is not provided.
+
+        validate_default keeps this running when the field is omitted, matching
+        the always=True behaviour this validator had before the Pydantic V2 port.
+        info.data holds only the fields validated before this one, so it mirrors
+        the V1 values mapping exactly.
+
+        Args:
+            v: Supplied location, if any
+            info: Validation context carrying previously validated fields
+
+        Returns:
+            The location to use
+        """
+        if v is None and info.data.get("interface") is not None:
+            logger.debug("Deriving port location from interface")
+            return info.data["interface"]
         return v
 
-    @validator("name", pre=True, always=True)
-    def validate_name(cls, v, values):
-        """Validate name, using interface or location if name is not provided."""
+    @field_validator("name", mode="before")
+    @classmethod
+    def validate_name(cls, v: Optional[str], info: ValidationInfo) -> Optional[str]:
+        """Fall back to interface, then location, when name is not provided.
+
+        Args:
+            v: Supplied name, if any
+            info: Validation context carrying previously validated fields
+
+        Returns:
+            The name to use
+        """
         if v is None:
-            if "interface" in values and values["interface"] is not None:
-                return values["interface"]
-            if "location" in values and values["location"] is not None:
-                return values["location"]
+            if info.data.get("interface") is not None:
+                logger.debug("Deriving port name from interface")
+                return info.data["interface"]
+            if info.data.get("location") is not None:
+                logger.debug("Deriving port name from location")
+                return info.data["location"]
         return v
 
 
@@ -174,16 +225,7 @@ class Config:
                 self.targets.targets[hostname] = target_config
 
             logger.info("Checking for schema path in configuration")
-            if "schema_path" in config_data:
-                schema_path = config_data["schema_path"]
-                logger.info(f"Found schema_path in config: {schema_path}")
-                if os.path.exists(schema_path):
-                    self.schemas.schema_path = schema_path
-                    logger.info(f"Using custom schema path: {schema_path}")
-                else:
-                    logger.warning(
-                        f"Specified schema path does not exist: {schema_path}"
-                    )
+            self._load_schema_path(config_data)
 
             logger.info(
                 f"Successfully loaded configuration with {len(self.targets.targets)} targets"
@@ -197,6 +239,51 @@ class Config:
             error_msg = f"Error loading configuration: {str(e)}"
             logger.critical(error_msg)
             raise
+
+    def _load_schema_path(self, config_data: dict) -> None:
+        """
+        Resolve the custom schema directory from loaded configuration data.
+
+        The documented location is a nested "schemas" object:
+        {"schemas": {"schema_path": "/path/to/schemas"}}. A top-level
+        "schema_path" key is also honored for backward compatibility.
+
+        Args:
+            config_data: Parsed contents of the configuration file
+        """
+        schema_path = None
+        source = None
+
+        logger.info("Looking for schema_path in the nested 'schemas' object")
+        schemas_section = config_data.get("schemas")
+        if isinstance(schemas_section, dict):
+            schema_path = schemas_section.get("schema_path")
+            source = "schemas.schema_path"
+        elif schemas_section is not None:
+            logger.warning(
+                f"Ignoring 'schemas' property because it is not an object: {schemas_section!r}"
+            )
+
+        if schema_path is None:
+            logger.info("Falling back to the legacy top-level 'schema_path' key")
+            if "schema_path" in config_data:
+                schema_path = config_data["schema_path"]
+                source = "schema_path"
+                logger.warning(
+                    "Top-level 'schema_path' is deprecated, "
+                    "move it under the 'schemas' object instead"
+                )
+
+        if schema_path is None:
+            logger.info("No custom schema path configured, using built-in schemas only")
+            return
+
+        logger.info(f"Found {source} in config: {schema_path}")
+        if os.path.exists(schema_path):
+            self.schemas.schema_path = schema_path
+            logger.info(f"Using custom schema path: {schema_path}")
+        else:
+            logger.warning(f"Specified schema path does not exist: {schema_path}")
 
     def setup_logging(self):
         """Configure logging based on the provided settings."""
