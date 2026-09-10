@@ -5,12 +5,14 @@ Open Traffic Generator (OTG) APIs via direct connections to traffic generators.
 """
 
 import argparse
+import inspect
 import logging
 import sys
 import traceback
-from typing import Annotated, Any, Dict, List, Literal, Optional, Union
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union, cast
 
 from fastmcp import FastMCP
+from fastmcp.tools import Tool
 from pydantic import Field
 
 from otg_mcp.client import OtgClient
@@ -94,10 +96,31 @@ class OtgMcpServer:
                     f"Found tool method: {attr_name}, registering as: {tool_name}"
                 )
                 logger.info(f"Registering tool: {tool_name}")
-                self.mcp.add_tool(method, name=tool_name)
+                self._add_tool(method, tool_name)
                 count += 1
 
         logger.info(f"Registered {count} tools successfully")
+
+    def _add_tool(self, method: Any, tool_name: str) -> None:
+        """Register one tool, tolerating both FastMCP add_tool signatures.
+
+        FastMCP 2.2.x exposes add_tool(fn, name=...). Later 2.x releases removed
+        that form and accept a single Tool instance instead, so the signature is
+        inspected rather than assuming either shape.
+
+        Args:
+            method: Bound tool method to register
+            tool_name: Name to expose the tool under
+        """
+        add_tool = cast(Any, self.mcp.add_tool)
+
+        logger.debug("Inspecting FastMCP.add_tool signature for compatibility")
+        if "tool" in inspect.signature(self.mcp.add_tool).parameters:
+            logger.debug(f"Registering {tool_name} as a Tool instance")
+            add_tool(Tool.from_function(method, name=tool_name))
+        else:
+            logger.debug(f"Registering {tool_name} via legacy callable signature")
+            add_tool(method, name=tool_name)
 
     async def tool_set_config(
         self,

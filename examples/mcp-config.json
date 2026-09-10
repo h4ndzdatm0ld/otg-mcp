@@ -1,11 +1,12 @@
 {
   "mcpServers": {
-    "custom-server": {
+    "otg-mcp": {
       "command": "python",
       "args": [
-        "run_server.py",
+        "-m",
+        "otg_mcp",
         "--config-file",
-        "trafficGeneratorConfig.json"
+        "examples/trafficGeneratorConfig.json"
       ]
     }
   }

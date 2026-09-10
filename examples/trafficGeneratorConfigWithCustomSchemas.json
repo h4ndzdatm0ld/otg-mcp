@@ -3,7 +3,7 @@
     "schema_path": "/path/to/custom/schemas/directory"
   },
   "targets": {
-    "ixnetwork": {
+    "ixnetwork.example.com:8443": {
       "ports": {
         "port1": {
           "location": "1/1",
@@ -15,7 +15,7 @@
         }
       }
     },
-    "keysight-ixia": {
+    "keysight-ixia.example.com:8443": {
       "ports": {
         "port1": {
           "location": "10.0.0.1/1/1",
