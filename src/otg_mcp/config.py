@@ -131,21 +131,12 @@ class TargetsConfig(BaseSettings):
     )
 
 
-class SchemaConfig(BaseSettings):
-    """Configuration for schema handling."""
-
-    schema_path: Optional[str] = Field(
-        default=None, description="Path to directory containing custom schema files"
-    )
-
-
 class Config:
     """Main configuration for the MCP server."""
 
     def __init__(self, config_file: Optional[str] = None):
         self.logging = LoggingConfig()
         self.targets = TargetsConfig()
-        self.schemas = SchemaConfig()
 
         logger.info("Initializing configuration")
         if config_file:
@@ -224,9 +215,6 @@ class Config:
                 logger.info(f"Adding target {hostname} to configuration")
                 self.targets.targets[hostname] = target_config
 
-            logger.info("Checking for schema path in configuration")
-            self._load_schema_path(config_data)
-
             logger.info(
                 f"Successfully loaded configuration with {len(self.targets.targets)} targets"
             )
@@ -239,51 +227,6 @@ class Config:
             error_msg = f"Error loading configuration: {str(e)}"
             logger.critical(error_msg)
             raise
-
-    def _load_schema_path(self, config_data: dict) -> None:
-        """
-        Resolve the custom schema directory from loaded configuration data.
-
-        The documented location is a nested "schemas" object:
-        {"schemas": {"schema_path": "/path/to/schemas"}}. A top-level
-        "schema_path" key is also honored for backward compatibility.
-
-        Args:
-            config_data: Parsed contents of the configuration file
-        """
-        schema_path = None
-        source = None
-
-        logger.info("Looking for schema_path in the nested 'schemas' object")
-        schemas_section = config_data.get("schemas")
-        if isinstance(schemas_section, dict):
-            schema_path = schemas_section.get("schema_path")
-            source = "schemas.schema_path"
-        elif schemas_section is not None:
-            logger.warning(
-                f"Ignoring 'schemas' property because it is not an object: {schemas_section!r}"
-            )
-
-        if schema_path is None:
-            logger.info("Falling back to the legacy top-level 'schema_path' key")
-            if "schema_path" in config_data:
-                schema_path = config_data["schema_path"]
-                source = "schema_path"
-                logger.warning(
-                    "Top-level 'schema_path' is deprecated, "
-                    "move it under the 'schemas' object instead"
-                )
-
-        if schema_path is None:
-            logger.info("No custom schema path configured, using built-in schemas only")
-            return
-
-        logger.info(f"Found {source} in config: {schema_path}")
-        if os.path.exists(schema_path):
-            self.schemas.schema_path = schema_path
-            logger.info(f"Using custom schema path: {schema_path}")
-        else:
-            logger.warning(f"Specified schema path does not exist: {schema_path}")
 
     def setup_logging(self):
         """Configure logging based on the provided settings."""

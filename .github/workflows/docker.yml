@@ -45,6 +45,28 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
     
+    # Build into the local daemon first so the image can actually be run and
+    # verified before anything is published. Shares the same layer cache as the
+    # publish step below, so this costs little.
+    - name: Build image locally for verification
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        load: true
+        tags: otg-mcp:ci
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    # A build that succeeds can still ship a server that registers no tools, so
+    # start the MCP server inside the image and assert every expected tool name
+    # comes back over stdio. Runs entirely in the container, which already has
+    # the mcp client library and the test script.
+    - name: Verify MCP server exposes all expected tools
+      run: |
+        docker run --rm otg-mcp:ci \
+          python tests/docker/assert_tools.py -- \
+          python -m otg_mcp --config-file examples/trafficGeneratorConfig.json
+
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
