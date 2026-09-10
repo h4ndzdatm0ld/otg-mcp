@@ -50,6 +50,7 @@ all = [
 # This controls what version of Python you want to be the default
 # when running any scripts or tools to do things like debug test failures
 # or do general development.  It's lockfile is ./requirements.txt
+type = "pip-compile"
 python = "3.12"
 features = ["dev"]
 dependencies = []
