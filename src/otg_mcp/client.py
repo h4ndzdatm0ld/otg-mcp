@@ -30,10 +30,13 @@ from otg_mcp.models import (
     TrafficGeneratorInfo,
     TrafficGeneratorStatus,
 )
-from otg_mcp.schema_registry import SchemaRegistry
+from otg_mcp.schema import extract_component
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+REMOTE_SCHEMA_PATH = "/docs/openapi.json"
+REMOTE_SCHEMA_TIMEOUT_SECONDS = 30
 
 
 @dataclass
@@ -47,27 +50,12 @@ class OtgClient:
 
     config: Config
     api_clients: Dict[str, Any] = field(default_factory=dict)
-    schema_registry: Optional[SchemaRegistry] = field(default=None)
+    target_schemas: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     def __post_init__(self):
         """Initialize after dataclass initialization."""
         logger.info("Initializing OTG client")
-
-        logger.debug("Checking if we need to create a SchemaRegistry")
-        if self.schema_registry is None:
-            logger.info("No SchemaRegistry provided, creating one")
-            custom_schema_path = None
-            if self.config.schemas.schema_path:
-                custom_schema_path = self.config.schemas.schema_path
-                logger.info(
-                    f"Using custom schema path from config: {custom_schema_path}"
-                )
-
-            self.schema_registry = SchemaRegistry(custom_schema_path)
-            logger.info("Created new SchemaRegistry instance")
-        else:
-            logger.info("Using provided SchemaRegistry instance")
-
+        logger.info("Schemas are fetched from each target, no local schemas are used")
         logger.info("OTG client initialized")
 
     def _get_api_client(self, target: str):
@@ -863,10 +851,24 @@ class OtgClient:
             )
 
             if result["status"] == "success":
+                size_bytes = result.get("size_bytes", 0)
+                data: Dict[str, Any] = {
+                    "status": "captured",
+                    "file_path": result["file_path"],
+                    "size_bytes": size_bytes,
+                }
+
+                if not size_bytes:
+                    logger.warning(
+                        f"Capture for port {port_name} is empty. The port received no "
+                        f"frames, so the pcap contains no packets."
+                    )
+                    data["warning"] = "capture is empty, no frames were received"
+
                 return CaptureResponse(
                     status="success",
                     port=port_name,
-                    data={"status": "captured", "file_path": result["file_path"]},
+                    data=data,
                     file_path=result["file_path"],
                     capture_id=result.get("capture_id"),
                 )
@@ -1023,76 +1025,21 @@ class OtgClient:
             if target_name in targets:
                 logger.info(f"Found configuration for target: {target_name}")
                 target_config = targets[target_name]
-                schema_registry = self.schema_registry
 
-                logger.info(
-                    "Initializing API version with default value to be overridden by device-reported version"
-                )
+                logger.info("Reporting the version the target itself reports")
                 target_config["apiVersion"] = "unknown"
-                logger.debug(
-                    "API version is always set dynamically from device, never from config"
-                )
 
-                logger.info("Getting API version directly from the target device")
                 try:
-                    logger.info(
-                        f"Attempting to get API version from target {target_name}"
-                    )
                     version_info = await self.get_target_version(target_name)
-                    actual_api_version = version_info.sdk_version
-                    normalized_version = actual_api_version.replace(".", "_")
-
+                    target_config["apiVersion"] = version_info.sdk_version
                     logger.info(
-                        f"Target {target_name} reports API version: {actual_api_version}"
+                        f"Target {target_name} reports API version: "
+                        f"{version_info.sdk_version}"
                     )
-
-                    logger.debug(
-                        "Verifying schema registry was properly initialized in __post_init__"
-                    )
-                    if schema_registry is None:
-                        logger.error("Schema registry is not initialized")
-                        raise ValueError("Schema registry is not initialized")
-
-                    logger.info(
-                        "Checking for schema match for the reported API version"
-                    )
-                    if schema_registry.schema_exists(normalized_version):
-                        logger.info(
-                            f"Found exact schema for actual version: {actual_api_version}"
-                        )
-                        target_config["apiVersion"] = actual_api_version
-                    else:
-                        logger.info(
-                            "No exact schema match found, finding closest available schema"
-                        )
-                        if schema_registry is None:
-                            logger.error("Schema registry is not initialized")
-                            raise ValueError("Schema registry is not initialized")
-
-                        closest_version = schema_registry.find_closest_schema_version(
-                            normalized_version
-                        )
-                        closest_version_dotted = closest_version.replace("_", ".")
-                        logger.info(
-                            f"No exact schema for version {actual_api_version}. "
-                            f"Using closest matching version: {closest_version_dotted}"
-                        )
-                        target_config["apiVersion"] = closest_version_dotted
                 except Exception as e:
-                    logger.info(
-                        "Exception during API version detection, falling back to latest schema"
-                    )
-                    if schema_registry is None:
-                        logger.error("Schema registry is not initialized")
-                        raise ValueError("Schema registry is not initialized")
-
-                    latest_version = schema_registry.get_latest_schema_version()
-                    latest_version_dotted = latest_version.replace("_", ".")
                     logger.warning(
-                        f"Failed to get API version from target {target_name}: {str(e)}. "
-                        f"Using latest available schema version: {latest_version_dotted}"
+                        f"Failed to get API version from target {target_name}: {str(e)}"
                     )
-                    target_config["apiVersion"] = latest_version_dotted
 
                 return target_config
 
@@ -1102,6 +1049,106 @@ class OtgClient:
             logger.error(f"Error looking up target {target_name}: {e}")
             logger.error(traceback.format_exc())
             return None
+
+    async def _fetch_remote_schema(self, target: str) -> Optional[Dict[str, Any]]:
+        """Fetch a target's own OpenAPI document.
+
+        The controller serves the spec it actually implements, which is a more
+        truthful contract than any version guess made locally.
+
+        Args:
+            target: Target hostname and port
+
+        Returns:
+            The parsed document, or None if the target does not serve one
+        """
+        url = f"https://{target}{REMOTE_SCHEMA_PATH}"
+        logger.info(f"Fetching schema from target: {url}")
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=REMOTE_SCHEMA_TIMEOUT_SECONDS)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url, ssl=False) as response:
+                    if response.status != 200:
+                        logger.warning(
+                            f"Target {target} returned {response.status} for {REMOTE_SCHEMA_PATH}"
+                        )
+                        return None
+
+                    schema = await response.json(content_type=None)
+        except Exception as e:
+            logger.warning(f"Could not fetch schema from {target}: {str(e)}")
+            return None
+
+        if not isinstance(schema, dict) or "components" not in schema:
+            logger.warning(f"Target {target} served a document without components")
+            return None
+
+        components = schema["components"]
+        if not isinstance(components, dict):
+            logger.warning(
+                f"Target {target} served a document with malformed components"
+            )
+            return None
+
+        component_schemas = components.get("schemas", {})
+        if not isinstance(component_schemas, dict):
+            logger.warning(
+                f"Target {target} served a document with malformed component schemas"
+            )
+            return None
+
+        info = schema.get("info", {})
+        spec_version = (
+            info.get("version", "unknown") if isinstance(info, dict) else "unknown"
+        )
+        component_count = len(component_schemas)
+        logger.info(
+            f"Fetched schema from {target}: spec version {spec_version}, "
+            f"{component_count} components"
+        )
+        return schema
+
+    async def _get_schema_for_target(self, target_name: str) -> Dict[str, Any]:
+        """Resolve the OpenAPI document for a target by asking the target for it.
+
+        The controller serves the document it actually implements, so that is the
+        only source used. It is fetched once per target and reused for the life of
+        the process, keeping several generators on different software versions
+        independent of one another.
+
+        Args:
+            target_name: Name of the target
+
+        Returns:
+            The OpenAPI document the target served
+
+        Raises:
+            ValueError: If the target is not configured, or served no usable document
+        """
+        if target_name not in self.config.targets.targets:
+            error_msg = f"Target {target_name} not found"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        if target_name in self.target_schemas:
+            logger.info(f"Using cached schema for {target_name}")
+            return self.target_schemas[target_name]
+
+        logger.info(f"Resolving schema for target {target_name}")
+        schema = await self._fetch_remote_schema(target_name)
+        if schema is None:
+            error_msg = (
+                f"Target {target_name} did not serve a schema at "
+                f"{REMOTE_SCHEMA_PATH}. Schema tools require a target that "
+                f"publishes its own OpenAPI document."
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        self.target_schemas[target_name] = schema
+        logger.info(f"Using schema served by {target_name}")
+        return schema
 
     async def get_schemas_for_target(
         self, target_name: str, schema_names: List[str]
@@ -1124,39 +1171,21 @@ class OtgClient:
             f"Getting schemas for target {target_name}, schemas: {schema_names}"
         )
 
-        target_config = await self._get_target_config(target_name)
-        if not target_config:
-            error_msg = f"Target {target_name} not found"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-
-        api_version = target_config["apiVersion"]
-        logger.info(f"Using API version {api_version} for target {target_name}")
+        schema = await self._get_schema_for_target(target_name)
 
         result = {}
         try:
-            registry = self.schema_registry
             for schema_name in schema_names:
                 logger.info(f"Retrieving schema {schema_name} for target {target_name}")
                 try:
-                    logger.debug("Verifying schema registry is properly initialized")
-                    if registry is None:
-                        logger.error("Schema registry is not initialized")
-                        raise ValueError("Schema registry is not initialized")
-
                     if "." not in schema_name or not schema_name.startswith(
                         "components.schemas."
                     ):
                         qualified_name = f"components.schemas.{schema_name}"
                         logger.info(f"Interpreting {schema_name} as {qualified_name}")
-                        result[schema_name] = registry.get_schema(
-                            api_version, qualified_name
-                        )
+                        result[schema_name] = extract_component(schema, qualified_name)
                     else:
-
-                        result[schema_name] = registry.get_schema(
-                            api_version, schema_name
-                        )
+                        result[schema_name] = extract_component(schema, schema_name)
                 except Exception as e:
                     logger.warning(f"Error retrieving schema {schema_name}: {str(e)}")
                     logger.debug("Creating error dictionary for exception response")
@@ -1188,22 +1217,8 @@ class OtgClient:
         """
         logger.info(f"Listing schemas for target {target_name}")
 
-        target_config = await self._get_target_config(target_name)
-        if not target_config:
-            error_msg = f"Target {target_name} not found"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-
-        api_version = target_config["apiVersion"]
-        logger.info(f"Using API version {api_version} for target {target_name}")
-
         try:
-            registry = self.schema_registry
-            logger.debug("Verifying schema registry is properly initialized")
-            if registry is None:
-                logger.error("Schema registry is not initialized")
-                raise ValueError("Schema registry is not initialized")
-            schema = registry.get_schema(api_version)
+            schema = await self._get_schema_for_target(target_name)
 
             if (
                 "components" in schema
@@ -1211,7 +1226,6 @@ class OtgClient:
                 and "schemas" in schema["components"]
                 and isinstance(schema["components"]["schemas"], dict)
             ):
-
                 result = list(schema["components"]["schemas"].keys())
                 logger.info(f"Extracted {len(result)} schema keys")
                 return result
@@ -1276,22 +1290,16 @@ class OtgClient:
             f"Getting schema components for target {target_name} with prefix {path_prefix}"
         )
 
-        target_config = await self._get_target_config(target_name)
-        if not target_config:
-            error_msg = f"Target {target_name} not found"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-
-        api_version = target_config["apiVersion"]
-        logger.info(f"Using API version {api_version} for target {target_name}")
-
         try:
-            registry = self.schema_registry
-            logger.debug("Verifying schema registry is properly initialized")
-            if registry is None:
-                logger.error("Schema registry is not initialized")
-                raise ValueError("Schema registry is not initialized")
-            return registry.get_schema_components(api_version, path_prefix)
+            schema = await self._get_schema_for_target(target_name)
+            components = extract_component(schema, path_prefix)
+
+            if not isinstance(components, dict):
+                logger.warning(f"Path {path_prefix} did not resolve to a mapping")
+                return []
+
+            logger.info(f"Found {len(components)} components under {path_prefix}")
+            return list(components.keys())
         except Exception as e:
             error_msg = (
                 f"Error getting schema components for target {target_name}: {str(e)}"

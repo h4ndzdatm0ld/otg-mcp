@@ -58,8 +58,8 @@ Four modules, layered:
 
 - **`server.py`** — `OtgMcpServer` wraps `FastMCP`. `_register_tools()` reflects over `dir(self)` and registers every method named `tool_<name>` as MCP tool `<name>`. **To add a tool, just add an `async def tool_foo(...)` method** — there is no registry to update. Tool bodies are one-liners delegating to `OtgClient`; keep the business logic in the client. Parameters use `Annotated[T, Field(description=...)]` since those descriptions become the MCP tool schema. Client-side autoApprove lists (e.g. the one in `README.md`) need updating by hand when tool names change.
 - **`client.py`** — `OtgClient` (a `@dataclass`) is the whole OTG surface: one `snappi` API client per target, cached in `self.api_clients`. Sync `_private` helpers do the snappi work; `async` public methods are what tools call and return the Pydantic response models.
-- **`schema_registry.py`** — resolves an API version string to an OpenAPI document and answers schema queries against it.
-- **`config.py`** — JSON config file → `Config` holding `TargetsConfig` / `SchemaConfig` / `LoggingConfig`.
+- **`schema.py`** — `extract_component`, dotted-path navigation over a fetched OpenAPI document. No version resolution, no local files.
+- **`config.py`** — JSON config file → `Config` holding `TargetsConfig` / `LoggingConfig`.
 
 `models/models.py` holds every response model. All tool returns inherit `ApiResponse` (`success`/`error` fields) rather than raising to the MCP client.
 
@@ -70,13 +70,21 @@ A target's config key *is* its address. `_get_location_for_target()` returns `ht
 ### Two different "versions" — don't conflate them
 
 1. `_discover_api_schema()` / `_get_api_version()` read the *local snappi library* version and feature-detect methods on the API object.
-2. `get_target_version()` makes an HTTP call to the *remote generator's* `/capabilities/version`; that value is what `find_closest_schema_version()` maps onto a bundled schema.
+2. `get_target_version()` makes an HTTP call to the *remote generator's* `/capabilities/version`; that value is reported verbatim as `apiVersion` and is not matched against anything local.
 
-### Schema resolution
+### Schemas come from the target
 
-Built-in schemas live at `src/otg_mcp/schemas/<major>_<minor>_<patch>/openapi.yaml` (currently 1.28.0, 1.29.0, 1.30.0) — add a version by dropping in a new directory in that exact naming form. `_normalize_version()` converts `1.30.0` ↔ `1_30_0`. A custom directory with the same layout can be supplied via config and takes priority over built-ins. When there is no exact match, `find_closest_schema_version()` degrades: same major.minor with patch ≤ requested → same major with highest minor → latest available.
+There are no bundled schema files and no `schema_path` setting. `_fetch_remote_schema`
+GETs `https://<target>/docs/openapi.json`; `_get_schema_for_target` caches the result
+in `target_schemas` keyed by target for the process lifetime, so generators on
+different software versions stay independent. A target that serves no usable document
+raises `ValueError` naming the endpoint — nothing is substituted, because there is
+nothing local to substitute. `schema.py` holds `extract_component`, the only schema
+logic left: dotted-path navigation over an already-fetched document.
 
-A custom directory is configured as `{"schemas": {"schema_path": "/path"}}`. `Config._load_schema_path()` also accepts a legacy top-level `"schema_path"` key with a deprecation warning, and the nested form wins when both are present. A path that does not exist is warned about and ignored rather than raising.
+Note the served spec's `info.version` does not necessarily match the target's
+`app_version` from `/capabilities/version` (fantasia-2x reports spec 1.20.0 while
+running 1.28.0-33), so don't treat them as interchangeable.
 
 ### snappi version compatibility
 
@@ -86,7 +94,7 @@ Traffic control is written as feature-detection fallback chains rather than vers
 
 ## Testing conventions
 
-`tests/conftest.py` inserts `src/` on `sys.path` and provides `api_schema` (parsed `tests/fixtures/apiSchema.yml`), `test_config`, `router` (an `OtgClient`), and `example_target_config`. Most schema tests define their own local `MagicMock`-based registry fixtures instead — follow whichever pattern the file you are editing already uses. Tests never touch real hardware; mock the snappi API object. The bulk of the suite (`tests/schema/`) targets `schema_registry.py` version-matching edge cases. See `tests/README.md`.
+`tests/conftest.py` inserts `src/` on `sys.path` and provides `api_schema` (parsed `tests/fixtures/apiSchema.yml`), `test_config`, `router` (an `OtgClient`), and `example_target_config`. Tests never touch real hardware; stub `_fetch_remote_schema` rather than reaching for a network, and mock the snappi API object. `tests/schema/` covers per-target fetch, caching, isolation and malformed-document handling. See `tests/README.md`.
 
 ## Release
 

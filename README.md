@@ -30,9 +30,6 @@ Example configuration (`examples/trafficGeneratorConfig.json`):
 
 ```json
 {
-  "schemas": {
-    "schema_path": "/path/to/custom/schemas/directory"
-  },
   "targets": {
     "traffic-gen-1.example.com:8443": {
       "ports": {
@@ -60,49 +57,24 @@ Example configuration (`examples/trafficGeneratorConfig.json`):
 
 Key elements in the configuration:
 
-- `schemas`: Settings for schema management
-  - `schema_path`: Optional path to directory containing custom schema files
 - `targets`: Map of traffic generator targets
 - `ports`: Configuration for each port on the target, with location and name
 
-### Custom Schema Support
+### Schemas
 
-The OTG MCP Server supports loading schema files from user-defined directories, which is useful when:
+Schemas are not shipped with this server and there is nothing to configure. Each
+target publishes the OpenAPI document it actually implements at
+`/docs/openapi.json`, and the server fetches that document from the target the
+first time a schema is needed, then reuses it for the life of the process.
 
-- You have custom schemas for specific traffic generator versions
-- You need to test with unreleased API versions
-- You have special extensions to the standard OTG schemas
+Because the cache is keyed by target, several generators running different
+software versions each keep their own schema, and `get_schemas_for_target`
+always describes the contract the target really implements rather than a version
+guessed locally.
 
-To use custom schemas:
-
-1. Add a `schemas` section to your configuration file with the `schema_path` field pointing to your schema directory
-2. Organize your custom schema files in the same version-based structure as the built-in schemas
-3. Custom schemas will take priority over built-in schemas when both exist
-
-Example directory structure for custom schemas:
-```
-/path/to/custom/schemas/
-├── 1_28_0/
-│   └── openapi.yaml
-├── 1_29_0/
-│   └── openapi.yaml
-└── 1_31_0/  # Custom schema version not available in built-in schemas
-    └── openapi.yaml
-```
-
-### API Version Handling
-
-The OTG MCP Server automatically detects API versions from traffic generator targets:
-
-1. When connecting to a target, the server queries its API version
-2. If an exact matching schema version is available (versions 1.28.0 and newer are supported), it uses that schema
-3. If no exact match exists, it follows this priority order to find the closest match:
-   - Schema with same major.minor version and equal or lower patch version
-   - Schema with same major version and highest available minor version
-   - Latest available schema version as fallback
-4. This process checks both custom schemas (if configured) and built-in schemas, with custom schemas taking priority
-
-This intelligent version matching ensures optimal compatibility while allowing for custom schema extensions when needed.
+A target that does not publish its document cannot answer the schema tools; those
+calls fail with a message naming the endpoint that was tried. The traffic,
+capture, metrics and health tools are unaffected.
 
 ## Testing with deployIxiaC
 
@@ -203,7 +175,7 @@ When integrating with an MCP client application, you can use the following confi
       "-m",
       "otg_mcp",
       "--config-file",
-      "/path/to/otg-mcp/examples/trafficGeneratorConfigWithCustomSchemas.json"
+      "/path/to/otg-mcp/examples/trafficGeneratorConfig.json"
     ]
   }
 }
@@ -230,15 +202,11 @@ adding or renaming a `tool_*` method means updating this list.
 │       ├── models/          # Data models
 │       │   ├── __init__.py  # Model exports
 │       │   └── models.py    # Model definitions
-│       ├── schemas/         # Built-in API schemas
-│       │   ├── 1_28_0/      # Schema version 1.28.0
-│       │   ├── 1_29_0/      # Schema version 1.29.0
-│       │   └── 1_30_0/      # Schema version 1.30.0
 │       ├── __init__.py      # Package initialization
 │       ├── __main__.py      # Entry point
 │       ├── client.py        # Traffic generator client
 │       ├── config.py        # Configuration management
-│       ├── schema_registry.py # Schema management
+│       ├── schema.py        # OpenAPI document navigation
 │       └── server.py        # MCP server implementation
 ├── examples/                # Example scripts and configurations
 │   ├── trafficGeneratorConfig.json # Example configuration
@@ -259,7 +227,7 @@ adding or renaming a `tool_*` method means updating this list.
 1. **MCP Server**: Implements the Model Context Protocol interface
 2. **Configuration Manager**: Handles traffic generator configuration and connections
 3. **OTG Client**: Client for interacting with traffic generators
-4. **Schema Registry**: Manages API schemas for different traffic generator versions
+4. **Schema Fetching**: Retrieves each target's own OpenAPI document on demand
 5. **Models**: Pydantic models for representing data structures
 
 ### Code Quality

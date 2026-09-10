@@ -5,11 +5,12 @@ This file contains tests for the updated list_schemas_for_target functionality
 that focuses solely on returning components.schemas entries.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
 from otg_mcp.client import OtgClient
+from otg_mcp.config import Config, TargetConfig
 
 
 @pytest.fixture
@@ -34,29 +35,32 @@ def mock_schema():
     }
 
 
-@pytest.fixture
-def mock_schema_registry():
-    """Create a mock schema registry for testing."""
-    mock_registry = MagicMock()
-    return mock_registry
 
 
 @pytest.fixture
-def client(mock_schema_registry):
+def client():
     """Create a client instance for testing with a mock schema registry."""
-    from otg_mcp.config import Config
     mock_config = Config()
-    return OtgClient(config=mock_config, schema_registry=mock_schema_registry)
+    mock_config.targets.targets["test-target"] = TargetConfig()
+    return OtgClient(config=mock_config)
+
+
+def serve(client, schema):
+    """Make the target serve the given schema, as /docs/openapi.json would."""
+    client._fetch_remote_schema = AsyncMock(return_value=schema)
+    return client._fetch_remote_schema
 
 
 @pytest.mark.asyncio
-async def test_list_schemas_for_target_returns_only_schemas(client, mock_schema_registry, mock_schema):
+async def test_list_schemas_for_target_returns_only_schemas(
+    client, mock_schema
+):
     """Test that list_schemas_for_target returns only the schemas from components.schemas."""
     # Setup mocks with AsyncMock
     client._get_target_config = AsyncMock(return_value={"apiVersion": "1.30.0"})
 
-    # Configure the mock schema registry
-    mock_schema_registry.get_schema.return_value = mock_schema
+    # The target serves its own schema now
+    fetch = serve(client, mock_schema)
 
     # Call the method
     result = await client.list_schemas_for_target("test-target")
@@ -71,12 +75,13 @@ async def test_list_schemas_for_target_returns_only_schemas(client, mock_schema_
     assert not any(key in result for key in ["openapi", "info", "paths"])
     assert not any(key in result for key in ["top_level", "components", "servers"])
 
-    # Make sure the schema registry was called with the correct version
-    mock_schema_registry.get_schema.assert_called_once_with("1.30.0")
+    # The schema came from the target, fetched exactly once
+    fetch.assert_awaited_once_with("test-target")
+    assert "test-target" in client.target_schemas
 
 
 @pytest.mark.asyncio
-async def test_list_schemas_for_target_empty_components(client, mock_schema_registry):
+async def test_list_schemas_for_target_empty_components(client):
     """Test handling when the schema has no components section."""
     # Setup mocks with AsyncMock
     client._get_target_config = AsyncMock(return_value={"apiVersion": "1.30.0"})
@@ -87,8 +92,8 @@ async def test_list_schemas_for_target_empty_components(client, mock_schema_regi
         "paths": {},
     }
 
-    # Configure the mock schema registry
-    mock_schema_registry.get_schema.return_value = schema_without_components
+    # The target serves a document with no components section
+    serve(client, schema_without_components)
 
     # Call the method
     result = await client.list_schemas_for_target("test-target")
