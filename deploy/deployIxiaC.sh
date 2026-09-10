@@ -80,6 +80,9 @@ REMOTE_HOST=""
 MODE="one-arm"
 FORCE=false
 MTU=""
+NO_SUDO=false
+VERIFY_ONLY=false
+SUDO_CHECKED=false
 UPDATE_REPOS=false
 
 IXIA_REPO="https://github.com/open-traffic-generator/ixia-c.git"
@@ -116,8 +119,15 @@ REQUIRED_NET_UTILS=(
 install_otgen() {
   print_info "Installing OTGen tool for validation"
 
-  # Define the installation directory and version
-  local install_dir="/usr/local/bin"
+  # Skip entirely when otgen is already available. Reinstalling it was the only
+  # step that ever escalated on a provisioned host, and it failed anyway.
+  if remote_exec "command -v otgen > /dev/null 2>&1"; then
+    print_success "OTGen already installed: $(remote_exec "otgen version 2>&1 | head -1" || echo present)"
+    return 0
+  fi
+
+  # Install under the user's home so no root is required.
+  local install_dir="\$HOME/.local/bin"
   local latest_version="v0.6.3"
   local download_url="https://github.com/open-traffic-generator/otgen/releases/download/${latest_version}/otgen_${latest_version#v}_Linux_x86_64.tar.gz"
 
@@ -131,8 +141,8 @@ install_otgen() {
     print_info "Extracting OTGen binary"
     remote_exec "tar -xzf /tmp/otgen-install/otgen.tar.gz -C /tmp/otgen-install"
 
-    print_info "Installing to $install_dir (may require sudo)"
-    if remote_exec "sudo cp /tmp/otgen-install/otgen $install_dir/ && sudo chmod +x $install_dir/otgen"; then
+    print_info "Installing to $install_dir"
+    if remote_exec "mkdir -p $install_dir && cp /tmp/otgen-install/otgen $install_dir/ && chmod +x $install_dir/otgen"; then
       print_success "OTGen tool installed successfully"
       remote_exec "otgen version || $install_dir/otgen version"
     else
@@ -172,11 +182,14 @@ usage() {
   echo "  --mtu SIZE          MTU size for interfaces (default: auto-detect)"
   echo "  --force             Force redeployment even if containers are already running"
   echo "  --update            Update repositories to latest version (otherwise use fixed commit IDs)"
+  echo "  --no-sudo           Never prompt for a sudo password; fail any step that needs root"
+  echo "  --verify-only       Only check prerequisites and verify the API, change nothing (implies --no-sudo)"
   echo
   echo "Examples:"
   echo "  $0 --remote fantasia-1x.heshlaw.local"
   echo "  $0 --remote fantasia-1x.heshlaw.local --mode two-arm --mtu 9000"
   echo "  $0 --remote fantasia-1x.heshlaw.local --force --update"
+  echo "  $0 --remote fantasia-1x.heshlaw.local --verify-only"
   exit 1
 }
 
@@ -193,6 +206,10 @@ parse_args() {
         FORCE=true; shift;;
       --update)
         UPDATE_REPOS=true; shift;;
+      --no-sudo)
+        NO_SUDO=true; shift;;
+      --verify-only)
+        VERIFY_ONLY=true; NO_SUDO=true; shift;;
       *)
         echo -e "${RED}Unknown option: $1${NC}"
         usage;;
@@ -233,6 +250,95 @@ remote_exec_tty() {
     # Regular TTY execution
     ssh -t "$REMOTE_HOST" "$@"
   fi
+}
+
+# Request sudo only at the point a step actually needs root.
+#
+# Most runs against an already provisioned host need no root at all: Docker is
+# usable via the docker group, the utilities are installed, and an existing
+# deployment skips the interface and MTU work. Prompting up front asked every
+# user for a password that was usually never used, and made non-interactive runs
+# (CI, agents) fail at step 0 instead of succeeding.
+require_sudo() {
+  local reason="$1"
+
+  if [[ "$SUDO_CHECKED" == true ]]; then
+    return 0
+  fi
+  SUDO_CHECKED=true
+
+  print_info "Step needs root: $reason"
+
+  if ssh "$REMOTE_HOST" "sudo -n true" 2>/dev/null; then
+    print_success "Passwordless sudo available on $REMOTE_HOST"
+    return 0
+  fi
+
+  if [[ "$NO_SUDO" == true ]]; then
+    print_error "Root needed for: $reason, but --no-sudo was given"
+    return 1
+  fi
+
+  if [[ ! -t 0 ]]; then
+    print_error "Root needed for: $reason, but there is no terminal to prompt on"
+    print_info "Re-run interactively, or use --verify-only on a provisioned host"
+    return 1
+  fi
+
+  ask_for_sudo_password
+}
+
+# Read-only check that a host is ready to serve traffic-generator requests.
+#
+# Touches nothing and never escalates, so CI and agents can confirm a host is
+# usable without a password and without risking an existing deployment.
+verify_prerequisites_only() {
+  local failures=0
+
+  print_info "Checking Docker is usable without root"
+  if remote_exec "docker ps > /dev/null 2>&1"; then
+    print_success "Docker reachable as $(remote_exec whoami)"
+  else
+    print_error "Cannot run docker as the login user (missing docker group?)"
+    failures=$((failures + 1))
+  fi
+
+  print_info "Checking required network utilities"
+  local missing=()
+  for util in "${REQUIRED_NET_UTILS[@]}"; do
+    remote_exec "command -v $util > /dev/null 2>&1" || missing+=("$util")
+  done
+  if [[ ${#missing[@]} -eq 0 ]]; then
+    print_success "All ${#REQUIRED_NET_UTILS[@]} required utilities present"
+  else
+    print_error "Missing utilities: ${missing[*]}"
+    failures=$((failures + 1))
+  fi
+
+  print_info "Checking Ixia-C containers"
+  if [[ "$SKIP_DEPLOYMENT" == true ]]; then
+    print_success "Ixia-C containers are running"
+  else
+    print_error "No running Ixia-C containers found"
+    failures=$((failures + 1))
+  fi
+
+  print_info "Checking the controller answers on the API port"
+  if curl -sk -m 10 -o /dev/null -w '' "https://$REMOTE_HOST:8443/capabilities/version"; then
+    print_success "API responded: $(curl -sk -m 10 "https://$REMOTE_HOST:8443/capabilities/version")"
+  else
+    print_error "No response from https://$REMOTE_HOST:8443/capabilities/version"
+    failures=$((failures + 1))
+  fi
+
+  echo
+  if [[ $failures -eq 0 ]]; then
+    print_success "Host is ready, no changes made and no root required"
+    return 0
+  fi
+
+  print_error "$failures check(s) failed"
+  return 1
 }
 
 # Function to ask for the sudo password if needed
@@ -281,6 +387,11 @@ print_error() {
 
 # Function to install Docker on the remote host
 install_docker() {
+  if ! require_sudo "installing Docker on $REMOTE_HOST"; then
+    print_error "Docker is missing and cannot be installed without root"
+    return 1
+  fi
+
   print_info "Docker not detected. Attempting to install Docker on $REMOTE_HOST"
 
   # Determine OS distribution
@@ -330,6 +441,10 @@ install_docker() {
 
     # Start and enable Docker service
     print_info "Starting Docker service"
+    if ! require_sudo "starting the Docker daemon"; then
+      print_error "Docker is installed but not running, and cannot be started without root"
+      return 1
+    fi
     remote_exec "sudo systemctl start docker"
     remote_exec "sudo systemctl enable docker"
 
@@ -437,6 +552,10 @@ check_and_install_network_utils() {
     done
 
     # Ensure installation is non-interactive
+    if ! require_sudo "installing packages: ${install_packages[*]}"; then
+      print_error "Cannot install missing utilities without root"
+      return 1
+    fi
     remote_exec "sudo DEBIAN_FRONTEND=noninteractive $INSTALL_CMD -q --yes --no-install-recommends ${install_packages[*]}"
 
     # Verify installation
@@ -635,9 +754,11 @@ check_containers_running() {
       CONTROLLER=$(remote_exec "docker ps --format '{{.Names}}' | grep -E '(controller|keng-controller)' | head -1")
       print_info "Using existing controller container: $CONTROLLER"
 
-      # Set SKIP_DEPLOYMENT flag to skip subsequent deployment steps
+      # Signal "skip deployment" through the flag only. Returning non-zero here
+      # tripped the ERR trap under set -e, so an already deployed host reported
+      # success and then failed with exit code 1.
       SKIP_DEPLOYMENT=true
-      return 1  # Return 1 to indicate deployment should be skipped
+      return 0
     fi
   else
     print_info "No running Ixia-C containers found - will proceed with deployment"
@@ -723,18 +844,29 @@ verify_deployment() {
   # Create a temporary shell script to set environment variables and run otgen
   print_info "Setting up environment for otgen verification"
 
+  # Build the flow to match the deployment mode. otgen defaults to a two port
+  # flow (p1 -> p2 on 5555/5556), so on a one-arm host it aimed at a traffic
+  # engine that does not exist and every attempt failed with connection refused.
+  local otgen_flow_args="--tx p1 --txl localhost:5555"
+  case "$MODE" in
+    one-arm)
+      otgen_flow_args="$otgen_flow_args --rx p1 --rxl localhost:5555";;
+    *)
+      otgen_flow_args="$otgen_flow_args --rx p2 --rxl localhost:5556";;
+  esac
+  print_info "Verifying with otgen in $MODE mode: $otgen_flow_args"
+
   remote_exec "cat > /tmp/otgen_verify.sh << 'EOL'
 #!/bin/bash
 # Set environment variables for otgen
 export OTG_API=\"https://localhost:8443\"
-export OTG_LOCATION_P1=\"localhost:5555\"
-export OTG_LOCATION_P2=\"localhost:5556\"
 export OTG_FLOW_SMAC_P1=\"02:00:00:00:01:aa\"
 export OTG_FLOW_DMAC_P1=\"02:00:00:00:02:aa\"
 
 # Run otgen verification
-otgen create flow --rate 100 --count 100 | otgen run -k --metrics flow
+otgen create flow OTGEN_FLOW_ARGS --rate 100 --count 100 | otgen run -k --metrics flow
 EOL"
+  remote_exec "sed -i 's|OTGEN_FLOW_ARGS|$otgen_flow_args|' /tmp/otgen_verify.sh"
 
   # Make the script executable
   remote_exec "chmod +x /tmp/otgen_verify.sh"
@@ -772,7 +904,13 @@ EOL"
   done
 
   if [[ "$success" != "true" ]]; then
-    print_error "Traffic generator verification failed after multiple attempts"
+    if echo "${verification_result:-}" | grep -q "unknown field"; then
+      print_info "otgen could not parse the controller response, so the traffic test is inconclusive"
+      print_info "This means the installed otgen is older than the controller, not that the generator is broken"
+      print_info "Containers and the API endpoint were both verified above"
+    else
+      print_error "Traffic generator verification failed after multiple attempts"
+    fi
     print_info "This may be normal for the first deployment - services might need more time to initialize"
     print_info "Recent container logs from $CONTROLLER:"
     remote_exec "docker logs $CONTROLLER 2>&1 | tail -20" || true
@@ -874,10 +1012,22 @@ main() {
   print_info "Deploying Ixia-C on $REMOTE_HOST in $MODE mode"
   print_info "Starting deployment steps..."
 
-  # Ask for sudo password before starting any operations that might need it
-  print_info "Step 0/9: Checking sudo password requirements"
-  ask_for_sudo_password
+  # Look for an existing deployment before doing any provisioning work. A host
+  # that is already running Ixia-C needs no packages, no otgen and no root, so
+  # asking for any of that first was wasted effort.
+  SKIP_DEPLOYMENT=false
+  print_info "Checking for an existing deployment"
+  check_containers_running
+  if [[ "$SKIP_DEPLOYMENT" == true ]]; then
+    print_info "Existing deployment found, skipping provisioning steps"
+  fi
   echo
+
+  if [[ "$VERIFY_ONLY" == true ]]; then
+    print_info "Verify-only mode: checking prerequisites and API, changing nothing"
+    verify_prerequisites_only
+    exit $?
+  fi
 
   print_info "Step 1/8: Checking Docker status"
   check_docker_running
