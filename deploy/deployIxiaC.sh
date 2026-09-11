@@ -117,18 +117,32 @@ REQUIRED_NET_UTILS=(
 
 # Install otgen for validation
 install_otgen() {
+  local force="${1:-}"
   print_info "Installing OTGen tool for validation"
 
-  # Skip entirely when otgen is already available. Reinstalling it was the only
-  # step that ever escalated on a provisioned host, and it failed anyway.
-  if remote_exec "command -v otgen > /dev/null 2>&1"; then
+  # Skip when otgen is already available, unless a reinstall was requested
+  # because the installed one cannot parse the controller's responses.
+  # Reinstalling was the only step that ever escalated on a provisioned host.
+  if [[ "$force" != "force" ]] && remote_exec "command -v otgen > /dev/null 2>&1"; then
     print_success "OTGen already installed: $(remote_exec "otgen version 2>&1 | head -1" || echo present)"
     return 0
   fi
 
   # Install under the user's home so no root is required.
   local install_dir="\$HOME/.local/bin"
-  local latest_version="v0.6.3"
+
+  # A fixed otgen version goes stale against controllers deployed from :latest
+  # images (old otgen cannot unmarshal new metrics fields such as tx_rate_bps),
+  # so resolve the newest release and only fall back to a pin when GitHub's API
+  # is unreachable.
+  local fallback_version="v0.7.3"
+  local latest_version
+  latest_version=$(curl -s --max-time 10 https://api.github.com/repos/open-traffic-generator/otgen/releases/latest \
+    | grep -o '"tag_name": *"[^"]*"' | head -1 | grep -o 'v[0-9.]*') || true
+  if [[ -z "$latest_version" ]]; then
+    latest_version="$fallback_version"
+    print_info "Could not resolve latest OTGen release, falling back to $latest_version"
+  fi
   local download_url="https://github.com/open-traffic-generator/otgen/releases/download/${latest_version}/otgen_${latest_version#v}_Linux_x86_64.tar.gz"
 
   print_info "Downloading OTGen ${latest_version} directly"
@@ -420,7 +434,19 @@ install_docker() {
 
         # Update apt and install Docker Engine
         remote_exec "sudo apt-get update"
-        remote_exec "sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-buildx-plugin"
+
+        # Docker's repo lags new distro releases: on a codename it does not
+        # serve yet, docker-ce has no installation candidate and the install
+        # fails outright. Fall back to the distro's own docker.io packages,
+        # which ship the same engine and the compose plugin.
+        if remote_exec "apt-cache policy docker-ce 2>/dev/null | grep -q 'Candidate: [0-9]'"; then
+          remote_exec "sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-buildx-plugin"
+        else
+          print_info "docker-ce unavailable for $(remote_exec "lsb_release -cs"), installing distro docker.io packages instead"
+          remote_exec "sudo rm -f /etc/apt/sources.list.d/docker.list /etc/apt/keyrings/docker.gpg"
+          remote_exec "sudo apt-get update"
+          remote_exec "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-v2"
+        fi
         ;;
 
       centos|rhel|fedora|amzn)
@@ -453,7 +479,7 @@ install_docker() {
 
     # Add current user to the docker group
     print_info "Adding current user to docker group"
-    remote_exec "sudo usermod -aG docker \$(whoami)"
+    remote_exec "sudo groupadd -f docker && sudo usermod -aG docker \$(whoami)"
 
     print_info "Docker installation complete. You may need to reconnect to the server for group changes to take effect."
     return 0
@@ -881,6 +907,7 @@ EOL"
   local max_attempts=5
   local attempt=1
   local success=false
+  local otgen_upgraded=false
 
   while [[ $attempt -le $max_attempts && "$success" != "true" ]]; do
     print_info "Attempt $attempt/$max_attempts: Running otgen flow test..."
@@ -896,6 +923,18 @@ EOL"
       echo -e "${GREEN}========== OTGen Verification Results ==========${NC}"
       echo "$verification_result" | grep -E 'frames_tx|bytes_tx|transmit|metrics'
       echo -e "${GREEN}=============================================${NC}"
+    elif echo "$verification_result" | grep -q "unknown field"; then
+      # A parse error means the installed otgen predates the controller's
+      # metrics schema. Retrying cannot fix that: upgrade otgen once and try
+      # again, otherwise stop instead of burning the remaining attempts.
+      if [[ "$otgen_upgraded" != "true" ]]; then
+        print_info "Installed otgen cannot parse the controller response, upgrading otgen and retrying"
+        install_otgen force || true
+        otgen_upgraded=true
+      else
+        print_info "otgen still cannot parse the controller response after upgrade, stopping retries"
+        break
+      fi
     else
       sleep_time=$((5 * attempt)) # Progressive backoff
       print_info "Verification failed, waiting ${sleep_time} seconds before retry..."
