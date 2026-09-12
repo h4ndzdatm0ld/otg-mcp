@@ -1,0 +1,6 @@
+---
+# Roles installed from Galaxy are vendored at run time (see requirements.yml) and
+# are not ours to lint.
+exclude_paths:
+  - roles/geerlingguy.docker/
+  - inventory/hosts.yml

@@ -1,0 +1,336 @@
+---
+# Authoritative check, run on the target itself: the control node may be a
+# container that cannot resolve the lab's names.
+- name: Check the controller answers on the API port
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ otg_api_port }}/capabilities/version"
+    validate_certs: false
+    status_code: 200
+  register: verify_api
+  check_mode: false
+
+# otg-mcp addresses a target by its hostname, so confirm that path too. Not
+# fatal: a control node without the lab's DNS can still have deployed correctly.
+- name: Check the API is reachable from the control node
+  ansible.builtin.uri:
+    url: "https://{{ inventory_hostname }}:{{ otg_api_port }}/capabilities/version"
+    validate_certs: false
+    status_code: 200
+  register: verify_api_remote
+  delegate_to: localhost
+  failed_when: false
+  check_mode: false
+
+- name: Report control-node reachability
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'reachable from the control node as ' + inventory_hostname
+         if verify_api_remote.status | default(0) == 200
+         else 'NOT reachable from the control node as ' + inventory_hostname
+              + ' (' + (verify_api_remote.msg | default('unknown') | truncate(120))
+              + '). The deployment is fine; otg-mcp must be able to resolve this name.' }}
+
+# Deliberately the docker CLI rather than community.docker's docker_host_info:
+# that module talks to the Docker API from the target and needs the Python
+# requests library there, which nothing installs. It also reports every container
+# on the host, so an unrelated restarting container failed the play and engines
+# belonging to another project inflated the count.
+- name: List this deployment's containers
+  ansible.builtin.command: >-
+    docker ps --all
+    --filter label=com.docker.compose.project={{ otg_compose_project }}
+    --format {{ '{{.Names}}|{{.Status}}' | quote }}
+  register: verify_ps
+  changed_when: false
+  check_mode: false
+
+- name: Parse container names and states
+  ansible.builtin.set_fact:
+    verify_containers: >-
+      {{ verify_ps.stdout_lines | select | map('split', '|') | map('list') | list }}
+
+# A crash-looping stack can still answer the API from a stale process that
+# survived an earlier deployment, which makes an unhealthy host look healthy. One
+# lab host did exactly that: orphaned processes held 5555/5600/8443 while the API
+# answered from the old controller and every other check passed.
+- name: Assert no container is stuck restarting
+  ansible.builtin.assert:
+    that:
+      - restarting | length == 0
+    fail_msg: >-
+      Containers are crash-looping: {{ restarting | join(', ') }}.
+      Check 'docker logs' on the target. A common cause is a process left over
+      from an earlier deployment still holding 5555, 5600 or 8443, which makes
+      the new containers fail to bind while the API still answers from the stale
+      process. Find them with:
+      sudo lsof -nP -iTCP:5555 -iTCP:5600 -iTCP:8443 -sTCP:LISTEN
+    success_msg: "no containers are restarting"
+  vars:
+    restarting: >-
+      {{ verify_containers | selectattr('1', 'defined')
+         | selectattr('1', 'search', '(?i)restarting')
+         | map(attribute='0') | list }}
+
+- name: Assert every traffic engine is running
+  ansible.builtin.assert:
+    that:
+      - engines_up | length == otg_interfaces | length
+    fail_msg: >-
+      Expected {{ otg_interfaces | length }} running traffic engine(s) for
+      {{ otg_mode }}, found {{ engines_up | length }}. Engines present but not
+      running: {{ engines_all | difference(engines_up) | join(', ') | default('none', true) }}
+    success_msg: "{{ engines_up | length }} traffic engine(s) running"
+  vars:
+    engines_all: >-
+      {{ verify_containers | selectattr('0', 'search', 'traffic.engine')
+         | map(attribute='0') | list }}
+    # Only "Up" counts. Counting stopped containers let an engine that had
+    # crashed and exited still satisfy the expected total.
+    engines_up: >-
+      {{ verify_containers | selectattr('1', 'defined')
+         | selectattr('0', 'search', 'traffic.engine')
+         | selectattr('1', 'search', '^Up')
+         | map(attribute='0') | list }}
+
+# In DPDK mode the engine claims the NIC through vfio-pci; if that failed it logs
+# "failed to select IOMMU type" and reports 0 available ports while the container
+# still looks healthy. Every engine is checked: in two- and three-arm mode a
+# second port that failed to claim its device would otherwise go unnoticed.
+- name: Confirm DPDK bound every port
+  when: otg_driver == 'dpdk'
+  block:
+    - name: Read each traffic engine log
+      ansible.builtin.command: "docker logs {{ item }}"
+      loop: >-
+        {{ verify_containers | selectattr('0', 'search', 'traffic.engine')
+           | map(attribute='0') | list }}
+      register: verify_engine_logs
+      changed_when: false
+      check_mode: false
+
+    - name: Assert DPDK claimed each device
+      ansible.builtin.assert:
+        that:
+          - item.stdout is not search('failed to select IOMMU type')
+          - item.stdout is not search('Found 0 total ports')
+        fail_msg: >-
+          {{ item.item }} did not claim its NIC. Check its log for "failed to
+          select IOMMU type", which usually means this platform's IOMMU lacks
+          interrupt remapping (see dpdk_allow_unsafe_interrupts), or a memlock
+          limit that is too low.
+        success_msg: "{{ item.item }} claimed its device and reports available ports"
+      loop: "{{ verify_engine_logs.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+# Traffic is verified against the controller's REST API rather than otgen. otgen
+# pins a schema version, so a newer controller breaks it (an older otgen cannot
+# unmarshal tx_rate_bps) and it emits no layer1 section, which a DPDK port
+# requires. The API is the same interface otg-mcp itself drives.
+#
+# This REPLACES whatever configuration is loaded on the generator and transmits
+# frames, so it is NOT read-only. The verify verb disables it by default for that
+# reason; a deploy runs it, because a deployment that cannot pass traffic is not
+# finished.
+- name: Run the traffic check
+  when: otg_run_traffic_verify | bool
+  block:
+    - name: Render the verification flow
+      ansible.builtin.template:
+        src: verify-flow.json.j2
+        dest: "{{ verify_config_path }}"
+        mode: "0644"
+
+    - name: Apply the verification config
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:{{ otg_api_port }}/config"
+        method: POST
+        src: "{{ verify_config_path }}"
+        remote_src: true
+        body_format: json
+        headers:
+          Content-Type: application/json
+        validate_certs: false
+        status_code: 200
+      register: verify_apply
+      failed_when: false
+
+    # Controller releases differ in what they accept in layer1 (the speed enum
+    # and auto_negotiate), and it is the only version-sensitive part of this
+    # config. If the controller rejects it, retry without layer1 rather than
+    # failing a healthy deployment on a schema difference. A DPDK port genuinely
+    # needs it, so the retry is reported, not silent.
+    - name: Retry without layer1 when the controller rejected the config
+      when: verify_apply.status | default(0) != 200
+      block:
+        - name: Report the rejection
+          ansible.builtin.debug:
+            msg: >-
+              The controller rejected the verification config
+              (HTTP {{ verify_apply.status | default('?') }}:
+              {{ verify_apply.json | default(verify_apply.msg) | default('no detail') | string | truncate(200) }}).
+              Retrying without the layer1 section, which is the part that varies
+              between controller versions.
+
+        - name: Render the flow without layer1
+          ansible.builtin.template:
+            src: verify-flow.json.j2
+            dest: "{{ verify_config_path }}"
+            mode: "0644"
+          vars:
+            verify_include_layer1: false
+
+        - name: Apply the verification config without layer1
+          ansible.builtin.uri:
+            url: "https://127.0.0.1:{{ otg_api_port }}/config"
+            method: POST
+            src: "{{ verify_config_path }}"
+            remote_src: true
+            body_format: json
+            headers:
+              Content-Type: application/json
+            validate_certs: false
+            status_code: 200
+          register: verify_apply_retry
+
+        - name: Note that layer1 was dropped
+          ansible.builtin.debug:
+            msg: >-
+              Config applied without layer1. On a DPDK port this usually means
+              the rate is now interpreted against an unknown line speed; if the
+              transmit assertion below fails, check that otg_link_speed is a
+              value this controller version accepts.
+
+    # A DPDK port needs a moment after set_config before its link is usable.
+    - name: Give the ports time to establish link
+      ansible.builtin.pause:
+        seconds: "{{ verify_link_settle_seconds }}"
+
+    - name: Read port state before transmitting
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:{{ otg_api_port }}/monitor/metrics"
+        method: POST
+        body_format: json
+        body:
+          choice: port
+          port:
+            port_names: "{{ verify_port_names }}"
+        validate_certs: false
+        status_code: 200
+      register: verify_ports
+
+    # A port whose link is down still increments the engine's frame counters, so
+    # without this a dead link looks like a successful transmit. Forcing a speed
+    # with autonegotiation off is the usual cause on copper, which requires it.
+    - name: Warn about ports whose link is down
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: {{ down | join(', ') }} report link down. Frames will be
+          counted by the engine but will not reach the wire. On copper, check
+          that otg_link_autoneg is true; also check cabling.
+      vars:
+        down: >-
+          {{ verify_ports.json.port_metrics | default([])
+             | selectattr('link', 'defined')
+             | selectattr('link', 'equalto', 'down')
+             | map(attribute='name') | list }}
+      when: down | length > 0
+
+    - name: Start transmitting
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:{{ otg_api_port }}/control/state"
+        method: POST
+        body_format: json
+        body:
+          choice: traffic
+          traffic:
+            choice: flow_transmit
+            flow_transmit:
+              state: start
+        validate_certs: false
+        status_code: 200
+
+    - name: Collect flow metrics until transmission stops
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:{{ otg_api_port }}/monitor/metrics"
+        method: POST
+        body_format: json
+        body:
+          choice: flow
+          flow:
+            flow_names: ["{{ verify_flow_name }}"]
+        validate_certs: false
+        status_code: 200
+      register: verify_metrics
+      retries: 15
+      delay: 2
+      until: >-
+        verify_metrics.json.flow_metrics | default([]) | length > 0
+        and verify_metrics.json.flow_metrics[0].transmit == 'stopped'
+
+    - name: Capture the final flow metrics
+      ansible.builtin.set_fact:
+        verify_flow: "{{ verify_metrics.json.flow_metrics[0] }}"
+
+    # Hardware counters, not the engine's own: these prove frames reached the NIC.
+    - name: Read port counters after transmitting
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:{{ otg_api_port }}/monitor/metrics"
+        method: POST
+        body_format: json
+        body:
+          choice: port
+          port:
+            port_names: "{{ verify_port_names }}"
+        validate_certs: false
+        status_code: 200
+      register: verify_ports_after
+
+    - name: Assert every frame was transmitted
+      ansible.builtin.assert:
+        that:
+          - verify_flow.frames_tx | int == verify_frame_count
+        fail_msg: >-
+          Transmitted {{ verify_flow.frames_tx }} of {{ verify_frame_count }}
+          frames. The port is configured but not passing traffic.
+        success_msg: >-
+          transmitted {{ verify_flow.frames_tx }}/{{ verify_frame_count }}
+          frames, {{ verify_flow.bytes_tx }} bytes
+
+    - name: Report what the NIC counters saw
+      ansible.builtin.debug:
+        msg: >-
+          {{ item.name }}: link={{ item.link | default('?') }}
+          frames_tx={{ item.frames_tx | default('?') }}
+          frames_rx={{ item.frames_rx | default('?') }}
+      loop: "{{ verify_ports_after.json.port_metrics | default([]) }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Explain a zero receive count
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'frames_rx is 0, which is expected in one-arm mode: frames leave the
+              port and nothing loops them back, so there is nothing to receive.'
+             if otg_mode == 'one-arm'
+             else 'frames_rx is 0 in ' + otg_mode + ' mode, where the receiving
+              port is expected to see the traffic. Check that the ports are
+              cabled to each other or through a device that forwards between
+              them, that the far end is provisioned and forwarding, and that the
+              transmitting port reported link up above.' }}
+      when: verify_flow.frames_rx | int == 0
+
+- name: Summarise
+  ansible.builtin.debug:
+    msg:
+      - "host:       {{ inventory_hostname }}"
+      - "api:        https://{{ inventory_hostname }}:{{ otg_api_port }}"
+      - "version:    {{ verify_api.json.app_version }}"
+      - "mode:       {{ otg_mode }} ({{ otg_driver }})"
+      - "interfaces: {{ otg_interfaces | join(', ') }}"
+      - "otg-mcp:    add \"{{ inventory_hostname }}:{{ otg_api_port }}\" as a target key"
+      - >-
+        {{ 'note:      a DPDK binding does not survive a reboot; re-run the dpdk
+        role afterwards or the containers come back attached to nothing'
+        if otg_driver == 'dpdk' else 'note:      af_packet is CPU-bound at
+        roughly 3 Gbps; use otg_driver=dpdk for line rate' }}

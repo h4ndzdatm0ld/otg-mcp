@@ -1,0 +1,42 @@
+---
+# Managed by otg-mcp ansible. Local edits are overwritten on the next run.
+# mode: {{ otg_mode }} | driver: {{ otg_driver }}
+services:
+  controller:
+    image: ghcr.io/open-traffic-generator/keng-controller:{{ otg_controller_version }}
+    command: --accept-eula
+    network_mode: "host"
+    restart: always
+
+{% for iface in otg_interfaces %}
+  traffic_engine_{{ loop.index }}:
+    image: ghcr.io/open-traffic-generator/ixia-c-traffic-engine:{{ otg_traffic_engine_version }}
+    network_mode: "host"
+    restart: always
+    privileged: true
+    cpuset: "{{ otg_cpu_cores }}"
+    environment:
+    - OPT_LISTEN_PORT={{ 5555 + loop.index0 }}
+{% if otg_driver == 'dpdk' %}
+    - ARG_IFACE_LIST=pci@{{ otg_pci_devices[loop.index0] }}
+{% else %}
+    - ARG_IFACE_LIST=virtual@af_packet,{{ iface }}
+    - OPT_NO_HUGEPAGES=Yes
+{% endif %}
+{% if otg_driver == 'dpdk' %}
+    # Docker's 8MB default leaves DPDK unable to lock its hugepages.
+    ulimits:
+      memlock: -1
+    volumes:
+    - /dev/hugepages:/dev/hugepages
+    - /dev/vfio:/dev/vfio
+    - /sys/bus/pci:/sys/bus/pci
+    - /sys/devices/system/node:/sys/devices/system/node
+    - /lib/modules:/lib/modules:ro
+{% endif %}
+{% endfor %}
+
+  aur:
+    image: ghcr.io/open-traffic-generator/keng-app-usage-reporter:{{ otg_aur_version }}
+    network_mode: "host"
+    restart: always

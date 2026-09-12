@@ -1,0 +1,8 @@
+---
+otgen_install_dir: "{{ ansible_env.HOME }}/.local/bin"
+
+# Used only when the GitHub API cannot be reached to resolve the latest release.
+otgen_fallback_version: v0.7.3
+
+# Release assets are published per architecture.
+otgen_arch: "{{ 'x86_64' if ansible_architecture == 'x86_64' else 'arm64' }}"

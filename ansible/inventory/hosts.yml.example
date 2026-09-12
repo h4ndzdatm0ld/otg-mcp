@@ -1,0 +1,55 @@
+---
+# Copy to hosts.yml (gitignored) and edit.
+#
+# The inventory hostname should be the address otg-mcp will use to reach the
+# controller, because an otg-mcp target's config key *is* its address.
+#
+# Interfaces are declared, never auto-detected: detection cannot tell a
+# management NIC from a test NIC, and it silently picks dead links.
+all:
+  children:
+    traffic_generators:
+      # ansible_user defaults to your local $USER via the container; set it here
+      # if the account on the targets differs.
+      # vars:
+      #   ansible_user: labadmin
+
+      hosts:
+        # Software packet path. Works on any NIC, no host changes, ~3 Gbps ceiling.
+        lab-1.example.com:
+          otg_mode: one-arm
+          otg_driver: af_packet
+          otg_interfaces:
+            - enp1s0
+
+        # DPDK path: reaches 10G line rate. Only the interface name is needed;
+        # the role resolves the PCI address and records it on the target.
+        lab-2.example.com:
+          otg_mode: one-arm
+          otg_driver: dpdk
+          otg_interfaces:
+            - enp11s0f0
+          # Dedicated cores for the engine; avoid core 0.
+          otg_cpu_cores: "2,3,4,5"
+          # Required for DPDK: it reports no line speed, and the controller
+          # rejects traffic config for a port whose speed it cannot determine.
+          otg_link_speed: speed_10_gbps
+          # Only needed where the IOMMU lacks interrupt remapping (common on
+          # AMD). Weakens host isolation, so it is opt-in per host: read the
+          # README before setting it.
+          # dpdk_allow_unsafe_interrupts: true
+
+        # Two-arm across both ports of a dual-port NIC, so rx is measurable.
+        # lab-3.example.com:
+        #   otg_mode: two-arm
+        #   otg_driver: dpdk
+        #   otg_interfaces: [enp11s0f0, enp11s0f1]
+        #   otg_cpu_cores: "2,3,4,5,6,7"
+        #   otg_link_speed: speed_10_gbps
+
+        # A host reached through an ssh_config alias or a different address.
+        # lab-4.example.com:
+        #   ansible_host: 192.168.20.20
+        #   otg_mode: one-arm
+        #   otg_driver: af_packet
+        #   otg_interfaces: [eno1]

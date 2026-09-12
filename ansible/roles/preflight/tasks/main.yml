@@ -1,0 +1,43 @@
+---
+# Input validation, shared by every playbook so a mistake is caught before the
+# first package is installed or NIC is unbound, rather than surfacing later as an
+# undefined-variable traceback or a controller rejection at the very last step.
+
+- name: Assert interfaces were declared
+  ansible.builtin.assert:
+    that:
+      - otg_interfaces | length > 0
+    fail_msg: >-
+      Set otg_interfaces for {{ inventory_hostname }} in the inventory.
+      Interfaces are declared, never auto-detected: detection cannot tell a
+      management NIC from a test NIC.
+
+- name: Assert the mode and driver are supported
+  ansible.builtin.assert:
+    that:
+      - otg_mode in ['one-arm', 'two-arm', 'three-arm']
+      - otg_driver in ['af_packet', 'dpdk']
+    fail_msg: >-
+      otg_mode must be one-arm, two-arm or three-arm (got '{{ otg_mode }}') and
+      otg_driver must be af_packet or dpdk (got '{{ otg_driver }}')
+
+- name: Assert a line speed is set for DPDK
+  ansible.builtin.assert:
+    that:
+      - otg_link_speed | default('', true) | length > 0
+    fail_msg: >-
+      otg_driver=dpdk requires otg_link_speed (for example speed_10_gbps). DPDK
+      does not report a line speed, so without it the controller rejects any
+      traffic config with "Port line speed not found" - which would only surface
+      after the NICs were already bound and the containers deployed.
+  when: otg_driver == 'dpdk'
+
+# The roles install packages with apt and read Debian-style repository metadata.
+- name: Assert the target is Debian-family
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == 'Debian'
+    fail_msg: >-
+      These roles support Debian-family targets only (this host reports
+      {{ ansible_os_family }} / {{ ansible_distribution }}). Package installation
+      uses apt and the Docker repository probe assumes Debian layout.

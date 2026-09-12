@@ -1,0 +1,28 @@
+---
+# Bind one device to vfio-pci. Included per device by tasks/main.yml, which
+# passes dpdk_device as {pci, iface, driver}.
+
+- name: Take the kernel interface down before unbinding {{ dpdk_device.iface }}
+  become: true
+  ansible.builtin.command: "ip link set {{ dpdk_device.iface }} down"
+  changed_when: true
+  failed_when: false
+
+- name: Unbind the device from its current kernel driver {{ dpdk_device.pci }}
+  become: true
+  ansible.builtin.shell:
+    cmd: "echo {{ dpdk_device.pci }} > /sys/bus/pci/devices/{{ dpdk_device.pci }}/driver/unbind"
+  changed_when: true
+  failed_when: false
+
+- name: Set driver_override to vfio-pci {{ dpdk_device.pci }}
+  become: true
+  ansible.builtin.shell:
+    cmd: "echo vfio-pci > /sys/bus/pci/devices/{{ dpdk_device.pci }}/driver_override"
+  changed_when: true
+
+- name: Probe the device so vfio-pci claims it {{ dpdk_device.pci }}
+  become: true
+  ansible.builtin.shell:
+    cmd: "echo {{ dpdk_device.pci }} > /sys/bus/pci/drivers_probe"
+  changed_when: true

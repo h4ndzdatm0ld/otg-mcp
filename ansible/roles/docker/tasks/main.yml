@@ -1,0 +1,140 @@
+---
+# Docker installation is delegated to geerlingguy.docker, the de facto standard
+# role, on any release Docker's apt repository actually serves.
+#
+# It cannot be used unconditionally. Its docker_obsolete_packages list removes
+# docker.io and docker-compose-v2, and on a release Docker does not publish for
+# (Ubuntu 26.04 "resolute" at the time of writing) docker-ce has no installation
+# candidate. Running it there uninstalls the only Docker that can be installed
+# and then fails. So probe the repository first and fall back to the
+# distribution's own packages.
+
+# One lab host ran a snap dockerd and the distribution's at once. They fight over
+# /var/run/docker.sock, so containers land in whichever daemon owns it while the
+# other daemon's containers keep holding the host ports. The visible symptom is a
+# permanent crash loop with "Another process already listens on TCP port 5555"
+# and an API that answers with a stale version.
+- name: Look for more than one Docker daemon
+  ansible.builtin.shell:
+    cmd: "set -o pipefail; ps -eo comm,args | grep -E '^dockerd' | grep -vc rootless || true"
+    executable: /bin/bash
+  register: docker_daemon_count
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Fail when several Docker daemons are running
+  ansible.builtin.fail:
+    msg: >-
+      {{ docker_daemon_count.stdout | trim }} dockerd processes are running on
+      this host. Two daemons (typically a snap Docker plus the distribution's)
+      compete for /var/run/docker.sock: containers get created in one daemon
+      while the other's containers keep holding ports 5555/5600/8443, so the
+      deployment crash-loops forever while the API answers from the stale stack.
+      Pick one and disable the other, e.g.
+      sudo systemctl disable --now snap.docker.dockerd
+      (then sudo systemctl restart docker.socket docker), and re-run.
+  when: docker_daemon_count.stdout | default('0') | trim | int > 1
+
+- name: Probe Docker's apt repository for this release
+  ansible.builtin.uri:
+    url: >-
+      {{ docker_repo_probe_url }}/{{ ansible_distribution | lower }}/dists/{{
+      ansible_distribution_release }}/Release
+    method: HEAD
+    status_code: [200, 403, 404]
+  register: docker_repo_probe
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Decide how Docker will be installed
+  ansible.builtin.set_fact:
+    docker_use_upstream_repo: "{{ docker_repo_probe.status | default(0) == 200 }}"
+
+- name: Report the installation path
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Docker publishes for ' + ansible_distribution + ' '
+         + ansible_distribution_release + '; using geerlingguy.docker'
+         if docker_use_upstream_repo
+         else 'Docker publishes nothing for ' + ansible_distribution + ' '
+              + ansible_distribution_release
+              + '; installing the distribution packages instead' }}
+
+- name: Install Docker from Docker's repository
+  when: docker_use_upstream_repo
+  ansible.builtin.include_role:
+    name: geerlingguy.docker
+    apply:
+      become: true
+  vars:
+    docker_users: ["{{ ansible_user_id }}"]
+    docker_install_compose_plugin: true
+    docker_install_compose: false
+
+- name: Install Docker from the distribution's repository
+  when: not docker_use_upstream_repo
+  become: true
+  ansible.builtin.apt:
+    name: "{{ docker_distro_packages }}"
+    state: present
+    update_cache: true
+
+- name: Ensure the docker service is running and enabled
+  become: true
+  ansible.builtin.systemd_service:
+    name: docker
+    state: started
+    enabled: true
+
+# geerlingguy.docker handles the group for its own path, but the fallback path
+# needs it, and the group may not exist yet.
+- name: Ensure the docker group exists
+  become: true
+  ansible.builtin.group:
+    name: docker
+    state: present
+
+# Membership of the docker group is root-equivalent on the host. It is required
+# for the rest of this suite to manage containers without become, but set
+# docker_add_user_to_group=false if your site grants it another way.
+- name: Add the connecting user to the docker group
+  when: docker_add_user_to_group | bool
+  become: true
+  ansible.builtin.user:
+    name: "{{ ansible_user_id }}"
+    groups: docker
+    append: true
+  register: docker_group
+
+# Unconditional: reset_connection ignores `when` (the strategy plugin warns and
+# resets anyway), and resetting is harmless. The new docker group must take effect
+# before the tasks below use docker, so this cannot be a handler either.
+- name: Reset the connection so any new group membership applies
+  ansible.builtin.meta: reset_connection
+
+- name: Verify docker is usable without root
+  ansible.builtin.command: docker ps
+  register: docker_ps
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Fail with a clear message when docker is still unusable
+  ansible.builtin.fail:
+    msg: >-
+      docker is installed but '{{ ansible_user_id }}' cannot use it. A fresh
+      login is usually required after the group change; re-run this playbook.
+  when: docker_ps.rc != 0
+
+- name: Confirm docker compose v2 is available
+  ansible.builtin.command: docker compose version
+  register: docker_compose_check
+  changed_when: false
+  failed_when: docker_compose_check.rc != 0
+  check_mode: false
+
+- name: Report the Docker versions in use
+  ansible.builtin.debug:
+    msg: "{{ docker_compose_check.stdout_lines | first | default('docker compose present') }}"

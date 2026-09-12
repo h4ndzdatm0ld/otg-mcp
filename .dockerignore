@@ -1,0 +1,11 @@
+# The published image serves the otg_mcp package. The deployment tooling is a
+# separate concern with its own container (ansible/Dockerfile), and a local
+# inventory there can hold real lab hostnames.
+#
+# Note: tests/ MUST stay in the image - the docker workflow runs
+# tests/docker/assert_tools.py inside it to check the MCP tool surface.
+ansible/
+.git/
+.venv/
+coverage/
+*.log

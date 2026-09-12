@@ -1,0 +1,3 @@
+---
+# Where Ubuntu keeps classic sudo once sudo-rs owns the 'sudo' alternative.
+sudo_compat_classic_path: /usr/bin/sudo.ws

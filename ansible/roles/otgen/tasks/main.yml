@@ -1,0 +1,63 @@
+---
+# otgen is only used to verify a deployment, so it installs under the user's
+# home and never needs root.
+# otgen is a convenience for humans; nothing in this suite uses it (verification
+# drives the REST API). Skip it on an air-gapped host.
+- name: Resolve the latest otgen release
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/open-traffic-generator/otgen/releases/latest
+    return_content: true
+  register: otgen_release
+  failed_when: false
+  changed_when: false
+  delegate_to: localhost
+
+# A pinned otgen goes stale against controllers deployed from :latest images.
+# v0.6.3 could not unmarshal the tx_rate_bps field a 1.61.0 controller returns,
+# so every verification attempt failed on an otherwise healthy generator.
+- name: Select the otgen version to install
+  ansible.builtin.set_fact:
+    otgen_version: >-
+      {{ (otgen_release.json.tag_name | default(otgen_fallback_version))
+         if otgen_release.status | default(0) == 200
+         else otgen_fallback_version }}
+
+- name: Check the installed otgen version
+  ansible.builtin.command: "{{ otgen_install_dir }}/otgen version"
+  register: otgen_installed
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Install otgen
+  when: >-
+    otgen_installed.rc != 0
+    or otgen_version | regex_replace('^v', '') not in otgen_installed.stdout
+  block:
+    - name: Ensure the install directory exists
+      ansible.builtin.file:
+        path: "{{ otgen_install_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Download and unpack otgen
+      ansible.builtin.unarchive:
+        src: >-
+          https://github.com/open-traffic-generator/otgen/releases/download/{{ otgen_version }}/otgen_{{
+          otgen_version | regex_replace('^v', '') }}_Linux_{{ otgen_arch }}.tar.gz
+        dest: "{{ otgen_install_dir }}"
+        remote_src: true
+        include:
+          - otgen
+        mode: "0755"
+
+- name: Report the otgen version in use
+  ansible.builtin.command: "{{ otgen_install_dir }}/otgen version"
+  register: otgen_final
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Show otgen version
+  ansible.builtin.debug:
+    msg: "{{ otgen_final.stdout_lines | first | default('otgen not installed') }}"

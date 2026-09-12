@@ -35,7 +35,17 @@ Run the server:
 python -m otg_mcp --config-file examples/trafficGeneratorConfig.json [--transport stdio|sse]
 ```
 
-Local Ixia-C for manual testing: `cd deploy && ./deployIxiaC.sh` (Docker required; see `docs/deployIxiaC_simple_testing.md`).
+Deploying a generator: `cd ansible && docker compose run --rm ansible deploy`
+(Ansible roles, runs in a container; see `ansible/README.md`). Ansible is
+deliberately absent from `pyproject.toml` — it is pinned in `ansible/requirements.txt`
+and installed only into that container, so the production and test dependency sets
+are unaffected.
+
+The playbook declares interfaces explicitly rather than auto-detecting them.
+The shell script this replaced guessed, and its guess could select the host's
+management NIC; it also silently accepted dead links (on one host it chose
+`eth1`/`eth2`/`eth3`, which do not exist there, leaving a traffic engine bound to
+nothing while every check still passed).
 
 No integration tests exist. `tests/conftest.py` registers an `integration` marker
 and skips such tests unless `RUN_INTEGRATION_TESTS=1`, but nothing is marked and CI
@@ -85,6 +95,19 @@ logic left: dotted-path navigation over an already-fetched document.
 Note the served spec's `info.version` does not necessarily match the target's
 `app_version` from `/capabilities/version` (fantasia-2x reports spec 1.20.0 while
 running 1.28.0-33), so don't treat them as interchangeable.
+
+### Traffic engine packet paths
+
+The traffic engine runs one of two packet paths, and the difference is large:
+`af_packet` is a kernel socket path that is CPU-bound at roughly 3 Gbps, while
+DPDK polls in userspace and reaches line rate (measured 2.86 vs 9.85 Gbps on the
+same Intel X540 port). DPDK requires the NIC bound to `vfio-pci`, hugepages, and
+a `memlock` ulimit the Docker default (8 MB) does not provide.
+
+Two consequences worth knowing when reading `client.py` behaviour against a real
+target: a DPDK-bound NIC has no kernel interface at all, and a DPDK port reports
+no line speed, so any config using a percentage rate must also set `layer1`
+speed or the controller rejects it with "Port line speed not found".
 
 ### snappi version compatibility
 

@@ -1,0 +1,32 @@
+---
+# Control node for deploying Ixia-C to remote hosts.
+#   docker compose run --rm ansible deploy
+services:
+  ansible:
+    build: .
+    image: otg-mcp-ansible:local
+    # Every target is remote, so the container needs the operator's SSH identity.
+    # Keys are mounted read-only; SSH_AUTH_SOCK is forwarded when an agent is in
+    # use, which avoids passphrase prompts and keeps keys out of the container.
+    volumes:
+      - ./:/ansible
+      - ${SSH_DIR:-~/.ssh}:/root/.ssh:ro
+      - ${SSH_AUTH_SOCK:-/dev/null}:/ssh-agent
+    # Containers do not inherit the host's resolver, so lab names (.local or an
+    # internal zone) will not resolve unless you point at the DNS server that
+    # serves them: OTG_DNS=192.168.1.1 docker compose run --rm ansible deploy
+    # Leave unset if your targets resolve over public DNS, or use IPs /
+    # ansible_host in the inventory.
+    dns: ${OTG_DNS:-}
+    environment:
+      SSH_AUTH_SOCK: /ssh-agent
+      # The container runs as root, so without this SSH would try root@target.
+      # Defaults to the username on the machine running compose.
+      ANSIBLE_REMOTE_USER: ${ANSIBLE_REMOTE_USER:-${USER:-root}}
+      # Set to skip the interactive sudo prompt.
+      BECOME_PASS: ${BECOME_PASS:-}
+      NO_BECOME_PROMPT: ${NO_BECOME_PROMPT:-}
+      ANSIBLE_HOST_KEY_CHECKING: "False"
+    # Needed for --ask-become-pass to be able to prompt.
+    stdin_open: true
+    tty: true

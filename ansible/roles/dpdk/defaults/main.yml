@@ -1,0 +1,17 @@
+---
+# Set true only after confirming that every other device sharing the IOMMU group
+# is unused. vfio-pci claims the whole group.
+dpdk_skip_group_isolation_check: false
+
+# present binds the NICs to vfio-pci; absent returns them to the kernel driver.
+dpdk_state: present
+
+# Revert scope. Off by default so a revert does not silently change host-wide
+# settings another deployment on this host may still need.
+dpdk_revert_hugepages: false
+dpdk_revert_unsafe_interrupts: false
+
+# Where the interface-to-PCI mapping is recorded on the target. A DPDK-bound NIC
+# has no kernel interface, so without this a revert could not find the device
+# from its original name.
+dpdk_binding_record: /etc/otg-mcp-dpdk-bindings.json

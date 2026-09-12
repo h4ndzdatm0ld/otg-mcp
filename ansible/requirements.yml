@@ -1,0 +1,16 @@
+---
+# Pinned: an unpinned major bump can change docker_compose_v2 behaviour with no
+# change in this repo.
+collections:
+  - name: community.general
+    version: "11.4.0"
+  - name: community.docker
+    version: "4.9.0"
+  - name: ansible.posix
+    version: "3.0.0"
+
+roles:
+  # The standard Docker installation role. Used only on releases Docker's apt
+  # repository actually serves; see roles/docker/tasks/main.yml.
+  - name: geerlingguy.docker
+    version: 7.4.7
