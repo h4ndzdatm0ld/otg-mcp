@@ -19,7 +19,7 @@ The OTG MCP Server is a Python-based Model Context Protocol (MCP) to provide acc
 
 Comprehensive documentation is available in the `docs/` directory:
 
-- [Ixia-C Deployment Guide](./docs/deployIxiaC_simple_testing.md): Simple testing with Ixia-C Community Edition
+- [Deploying a traffic generator](./ansible/README.md): Ansible roles that build an OTG generator, including DPDK
 - [GitHub Flow](./docs/github-flow.md): Guidelines for GitHub workflow
 
 ## Configuration
@@ -76,25 +76,30 @@ A target that does not publish its document cannot answer the schema tools; thos
 calls fail with a message naming the endpoint that was tried. The traffic,
 capture, metrics and health tools are unaffected.
 
-## Testing with deployIxiaC
+## Deploying a traffic generator
 
-The project includes a utility script `deploy/deployIxiaC.sh` that helps set up and deploy Ixia-C for testing purposes. This script:
+`ansible/` turns a bare Linux host into an OTG traffic generator this server can
+drive. It installs Docker and the network tooling, deploys the Ixia-C containers,
+optionally binds NICs to DPDK for 10G line rate, and verifies the result by
+transmitting a real flow.
 
-- Pulls necessary Docker images for Ixia-C
-- Sets up the environment with the correct networking
-- Configures the test environment for OTG API usage
-
-To use this utility:
+Ansible runs in a container, so Docker is the only local requirement, and Ansible
+is deliberately **not** a dependency of the `otg_mcp` package.
 
 ```bash
-# Navigate to the deploy directory
-cd deploy
-
-# Run the deployment script (requires Docker)
-./deployIxiaC.sh
+cd ansible
+cp inventory/hosts.yml.example inventory/hosts.yml   # edit: host, interface, driver
+docker compose run --rm ansible deploy
 ```
 
-Refer to the [Ixia-C Deployment Guide](./docs/deployIxiaC_simple_testing.md) for more detailed information about using Ixia-C with this project.
+Other verbs: `verify` (read-only health check), `check` (dry run), `dpdk` and
+`revert-dpdk` (bind or release NICs), `ping`. See [ansible/README.md](./ansible/README.md)
+for the inventory format, the af_packet vs DPDK tradeoff, and the host-level
+traps it detects.
+
+The inventory hostname should be the address you will use as the target key in
+this server's config, since a target's key *is* its address.
+
 
 ## Examples
 
@@ -192,11 +197,14 @@ adding or renaming a `tool_*` method means updating this list.
 
 ```
 .
+├── ansible/                 # Deployment: builds an OTG generator on a remote host
+│   ├── site.yml             # Full deploy
+│   ├── dpdk.yml             # Bind NICs to DPDK
+│   ├── dpdk-revert.yml      # Return NICs to the kernel driver
+│   ├── docker-compose.yml   # Control node: docker compose run --rm ansible deploy
+│   └── roles/               # preflight, sudo_compat, docker, net_utils, otgen, dpdk, ixia_c, verify
 ├── docs/                    # Documentation
-│   ├── deployIxiaC_simple_testing.md # Ixia-C testing guide
 │   └── github-flow.md       # GitHub workflow documentation
-├── deploy/                  # Deployment scripts
-│   └── deployIxiaC.sh       # Script for deploying Ixia-C testing environment
 ├── src/                     # Source code
 │   └── otg_mcp/             # Main package
 │       ├── models/          # Data models

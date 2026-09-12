@@ -1,0 +1,14 @@
+---
+# Binds NICs to vfio-pci so the traffic engine can drive them with DPDK, which
+# is what makes 10G line rate reachable: the af_packet path is CPU-bound in the
+# kernel and tops out around 3 Gbps on the same hardware.
+#
+# Set dpdk_state=absent (or run dpdk-revert.yml) to hand the NICs back.
+
+- name: Hand the devices back to the kernel
+  ansible.builtin.include_tasks: revert.yml
+  when: dpdk_state == 'absent'
+
+- name: Bind the devices to DPDK
+  ansible.builtin.include_tasks: bind.yml
+  when: dpdk_state == 'present'

@@ -175,3 +175,7 @@ cython_debug/
 
 #Cline
 .clinerules/
+
+# Real inventories hold site-specific hostnames; only the example is tracked.
+ansible/inventory/hosts.yml
+ansible/roles/geerlingguy.docker/

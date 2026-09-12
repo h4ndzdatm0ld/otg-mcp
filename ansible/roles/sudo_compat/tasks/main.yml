@@ -1,0 +1,56 @@
+---
+# Ubuntu 25.10+ ships sudo-rs as the default sudo. It does not flush its
+# password prompt before reading stdin, so Ansible - which waits to see the
+# prompt before sending the password - deadlocks and fails every privileged task
+# with "Timeout waiting for privilege escalation prompt".
+#
+# Classic sudo is still installed alongside it as /usr/bin/sudo.ws. Pointing
+# become at that binary restores password-authenticated escalation without
+# touching sudoers or requiring passwordless sudo.
+#
+# Runs before any role that escalates. Costs one unprivileged stat when the
+# situation does not apply.
+
+- name: Detect the sudo implementation
+  ansible.builtin.command: sudo --version
+  register: sudo_compat_version
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Look for classic sudo alongside sudo-rs
+  ansible.builtin.stat:
+    path: "{{ sudo_compat_classic_path }}"
+  register: sudo_compat_classic
+  when: sudo_compat_version.stdout is search('sudo-rs')
+
+- name: Use classic sudo for privilege escalation
+  ansible.builtin.set_fact:
+    ansible_become_exe: "{{ sudo_compat_classic_path }}"
+  when:
+    - sudo_compat_version.stdout is search('sudo-rs')
+    - sudo_compat_classic.stat.exists | default(false)
+
+- name: Report the escalation binary in use
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'sudo-rs detected; using classic sudo at ' + sudo_compat_classic_path
+         if ansible_become_exe is defined
+         else 'using the default sudo' }}
+
+# Failing here rather than warning: every subsequent privileged task would time
+# out with "Timeout waiting for privilege escalation prompt", which is exactly
+# what this role exists to prevent, and the cause is not obvious from that error.
+- name: Fail when sudo-rs is the only sudo available
+  ansible.builtin.fail:
+    msg: >-
+      This host runs sudo-rs and has no classic sudo at
+      {{ sudo_compat_classic_path }}. sudo-rs does not flush its password prompt
+      before reading stdin, so Ansible's become would time out on every
+      privileged task. Either configure passwordless sudo for
+      {{ ansible_user_id }} (then run with NO_BECOME_PROMPT=1), or install the
+      'sudo' package on the target.
+  when:
+    - sudo_compat_version.stdout is search('sudo-rs')
+    - not sudo_compat_classic.stat.exists | default(false)
+    - ansible_become_password | default('', true) | length > 0

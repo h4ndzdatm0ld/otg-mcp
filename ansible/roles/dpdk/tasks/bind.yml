@@ -1,0 +1,205 @@
+---
+# Everything here is a host-level change, so it runs only when explicitly asked
+# for by otg_driver=dpdk.
+
+- name: Resolve the PCI address of each interface
+  ansible.builtin.include_tasks: resolve.yml
+
+- name: Refuse to touch anything the host needs to stay reachable
+  ansible.builtin.include_tasks: guard.yml
+
+- name: Read the IOMMU group of each target device
+  ansible.builtin.command: "readlink -f /sys/bus/pci/devices/{{ item }}/iommu_group"
+  loop: "{{ dpdk_pci_devices }}"
+  register: dpdk_iommu_groups
+  changed_when: false
+  check_mode: false
+
+- name: Fail when IOMMU is not enabled
+  ansible.builtin.assert:
+    that:
+      - dpdk_iommu_groups.results | rejectattr('stdout', 'search', 'iommu_groups') | list | length == 0
+    fail_msg: >-
+      No IOMMU group for the target device. Enable IOMMU in the firmware and add
+      intel_iommu=on (or amd_iommu=on) iommu=pt to the kernel cmdline, then
+      reboot.
+
+# vfio-pci claims an entire IOMMU group. If a device shares its group with
+# something the host is using, binding it takes that device away too.
+- name: List every device sharing an IOMMU group with a target device
+  ansible.builtin.command: "ls {{ item.stdout }}/devices"
+  loop: "{{ dpdk_iommu_groups.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  register: dpdk_group_members
+  changed_when: false
+
+- name: Assert each target device is alone in its IOMMU group
+  ansible.builtin.assert:
+    that:
+      - item.stdout_lines | length == 1
+    fail_msg: >-
+      PCI {{ item.item.item }} shares IOMMU group
+      {{ item.item.stdout | basename }} with:
+      {{ item.stdout_lines | join(', ') }}.
+      vfio-pci claims the whole group, so binding this device would detach the
+      others from their kernel drivers. Verify none of them are in use before
+      overriding this check.
+  loop: "{{ dpdk_group_members.results }}"
+  loop_control:
+    label: "{{ item.item.item }}"
+  when: not dpdk_skip_group_isolation_check
+
+- name: Load vfio-pci
+  become: true
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - vfio-pci
+    - vfio_iommu_type1
+
+# Some IOMMUs (notably AMD) do not implement interrupt remapping, and
+# vfio_iommu_type1_attach_group refuses the group without it. The kernel logs:
+#   "No interrupt remapping support. Use the module param allow_unsafe_interrupts"
+- name: Check whether the platform supports interrupt remapping
+  ansible.builtin.slurp:
+    src: /sys/module/vfio_iommu_type1/parameters/allow_unsafe_interrupts
+  register: dpdk_unsafe_irq
+  become: true
+  check_mode: false
+
+- name: Detect missing interrupt remapping support
+  ansible.builtin.command: dmesg
+  become: true
+  register: dpdk_dmesg
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+# This can only report a problem the kernel has already logged: the message is
+# emitted when an attach is attempted, so its absence proves nothing on a host
+# that has never run VFIO. Treated as a hint, never as a guarantee - the
+# authoritative check is the traffic engine log, asserted by the verify role.
+- name: Fail when the kernel has already refused a group for want of interrupt remapping
+  ansible.builtin.fail:
+    msg: >-
+      The kernel has logged "No interrupt remapping support", so VFIO will
+      refuse to attach this IOMMU group. Working around it requires
+      dpdk_allow_unsafe_interrupts=true, which lets a userspace driver inject
+      MSIs at the host. That is a real (if common in labs) weakening of host
+      isolation - set it deliberately, per host, rather than globally.
+  when:
+    - not dpdk_allow_unsafe_interrupts
+    - dpdk_dmesg.stdout is search('No interrupt remapping support')
+    - dpdk_unsafe_irq.content | b64decode | trim not in ['Y', '1']
+
+- name: Note that interrupt-remapping support could not be confirmed
+  ansible.builtin.debug:
+    msg: >-
+      No VFIO interrupt-remapping complaint in the kernel log. On a host that
+      has never bound a device this proves nothing: if the engine later logs
+      "failed to select IOMMU type", set dpdk_allow_unsafe_interrupts=true after
+      reading what it costs. The verify role asserts on that log line.
+  when:
+    - not dpdk_allow_unsafe_interrupts
+    - dpdk_dmesg.stdout is not search('No interrupt remapping support')
+
+- name: Enable unsafe interrupts for vfio_iommu_type1
+  when: dpdk_allow_unsafe_interrupts
+  become: true
+  block:
+    # sysfs does not support the copy module's staged write, so redirect instead.
+    - name: Set allow_unsafe_interrupts at runtime
+      ansible.builtin.shell:
+        cmd: echo 1 > /sys/module/vfio_iommu_type1/parameters/allow_unsafe_interrupts
+      changed_when: dpdk_unsafe_irq.content | b64decode | trim not in ['Y', '1']
+
+    - name: Persist allow_unsafe_interrupts across reboots
+      ansible.builtin.copy:
+        dest: /etc/modprobe.d/vfio-dpdk.conf
+        content: |
+          # Managed by otg-mcp ansible. This platform's IOMMU lacks interrupt
+          # remapping; VFIO will not attach a group without this.
+          options vfio_iommu_type1 allow_unsafe_interrupts=1
+        mode: "0644"
+
+- name: Allocate hugepages
+  become: true
+  ansible.posix.sysctl:
+    name: vm.nr_hugepages
+    value: "{{ dpdk_hugepages }}"
+    sysctl_file: /etc/sysctl.d/99-dpdk-hugepages.conf
+    reload: true
+
+- name: Ensure hugetlbfs is mounted
+  become: true
+  ansible.posix.mount:
+    path: /dev/hugepages
+    src: nodev
+    fstype: hugetlbfs
+    state: mounted
+
+- name: Read the current driver of each target device
+  ansible.builtin.command: "readlink -f /sys/bus/pci/devices/{{ item }}/driver"
+  loop: "{{ dpdk_pci_devices }}"
+  register: dpdk_current_drivers
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Record the interface-to-PCI mapping before binding anything
+  become: true
+  ansible.builtin.copy:
+    dest: "{{ dpdk_binding_record }}"
+    content: |
+      {{ dict(otg_interfaces | zip(dpdk_pci_devices)) | to_nice_json }}
+    mode: "0644"
+
+- name: Pair each device with its interface and current driver
+  ansible.builtin.set_fact:
+    dpdk_devices: >-
+      {{ dpdk_devices | default([]) + [{
+           'pci': item.item,
+           'iface': otg_interfaces[idx | int],
+           'driver': item.stdout | basename | default('none', true)
+         }] }}
+  vars:
+    idx: "{{ dpdk_pci_devices.index(item.item) }}"
+  loop: "{{ dpdk_current_drivers.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Bind target devices to vfio-pci
+  ansible.builtin.include_tasks: bind_device.yml
+  loop: "{{ dpdk_devices | rejectattr('driver', 'equalto', 'vfio-pci') | list }}"
+  loop_control:
+    loop_var: dpdk_device
+    label: "{{ dpdk_device.pci }} ({{ dpdk_device.iface }})"
+
+- name: Confirm each device is now on vfio-pci
+  ansible.builtin.command: "readlink -f /sys/bus/pci/devices/{{ item }}/driver"
+  loop: "{{ dpdk_pci_devices }}"
+  register: dpdk_final_drivers
+  changed_when: false
+
+- name: Assert the bind succeeded
+  ansible.builtin.assert:
+    that:
+      - item.stdout | basename == 'vfio-pci'
+    fail_msg: "PCI {{ item.item }} is on {{ item.stdout | basename }}, not vfio-pci"
+    success_msg: "PCI {{ item.item }} bound to vfio-pci"
+  loop: "{{ dpdk_final_drivers.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Verify the host is still reachable on its management interface
+  ansible.builtin.command: "ip -br addr show {{ ansible_default_ipv4.interface }}"
+  register: dpdk_mgmt_link
+  changed_when: false
+  when: ansible_default_ipv4.interface is defined
+
+- name: Show management link state
+  ansible.builtin.debug:
+    msg: "management link intact: {{ dpdk_mgmt_link.stdout }}"
+  when: dpdk_mgmt_link is not skipped

@@ -1,0 +1,15 @@
+---
+# Bind a device's NICs to DPDK without running a full deployment.
+#   docker compose run --rm ansible dpdk
+- name: Bind NICs to DPDK
+  hosts: '{{ otg_target | default("traffic_generators") }}'
+  gather_facts: true
+  roles:
+    - role: preflight
+      tags: [always]
+
+    - role: sudo_compat
+      tags: [always]
+    - role: dpdk
+      vars:
+        dpdk_state: present

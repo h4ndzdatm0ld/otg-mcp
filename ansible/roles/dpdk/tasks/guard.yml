@@ -1,0 +1,76 @@
+---
+# Refuse to touch anything the host needs to stay reachable.
+#
+# Included by BOTH bind and revert. Revert needs it just as much: unbinding the
+# management NIC drops its addresses and routes, and re-probing the kernel driver
+# does not re-apply netplan or NetworkManager configuration, so recovery is
+# console-only. Revert is also what an operator reaches for while already in
+# trouble.
+#
+# Checks are by PCI address as well as by name, because supplying
+# otg_pci_devices bypasses every name-based check.
+
+- name: Identify the interface carrying the default route
+  ansible.builtin.set_fact:
+    dpdk_mgmt_iface: "{{ ansible_default_ipv4.interface | default('') }}"
+
+- name: Resolve the PCI address behind the default route
+  ansible.builtin.command: "readlink -f /sys/class/net/{{ dpdk_mgmt_iface }}/device"
+  register: dpdk_mgmt_link
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: dpdk_mgmt_iface | length > 0
+
+# A management address on a VLAN, bond or bridge sits on a logical interface
+# whose name never appears in otg_interfaces, so a name comparison alone would
+# happily let us bind the physical parent and take the host off the network.
+# Walking to the PCI device catches the parent in every one of those layouts.
+- name: Collect the PCI addresses the host needs to stay reachable
+  ansible.builtin.set_fact:
+    dpdk_reserved_pci: >-
+      {{ [dpdk_mgmt_link.stdout | basename]
+         if dpdk_mgmt_link.stdout | default('') | length > 0 else [] }}
+
+- name: Also reserve the PCI address of every interface holding an address
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      for i in $(ls /sys/class/net); do
+        [ "$i" = lo ] && continue;
+        ip -4 -o addr show "$i" 2>/dev/null | grep -q inet || continue;
+        p=$(readlink -f "/sys/class/net/$i/device" 2>/dev/null) || continue;
+        [ -n "$p" ] && basename "$p";
+      done | sort -u
+    executable: /bin/bash
+  register: dpdk_addressed_pci
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Refuse to bind or unbind an interface the host is using
+  ansible.builtin.assert:
+    that:
+      - item not in dpdk_protected_pci
+    fail_msg: >-
+      PCI {{ item }} currently carries an IP address on this host
+      ({{ dpdk_mgmt_iface | default('unknown') }} holds the default route).
+      Handing it to DPDK removes it from the kernel entirely, which would drop
+      the address and routes and very likely cut off SSH. Nothing was changed.
+      Pick a NIC the host is not using, or move that address first.
+    success_msg: "PCI {{ item }} is not in use by the host"
+  loop: "{{ dpdk_pci_devices }}"
+  vars:
+    dpdk_protected_pci: >-
+      {{ (dpdk_reserved_pci + (dpdk_addressed_pci.stdout_lines | default([])))
+         | select | unique | list }}
+
+- name: Refuse an interface name that carries the default route
+  ansible.builtin.assert:
+    that:
+      - item != dpdk_mgmt_iface
+    fail_msg: >-
+      {{ item }} carries this host's default route. Nothing was changed.
+    success_msg: "{{ item }} does not carry the default route"
+  loop: "{{ otg_interfaces }}"
+  when: dpdk_mgmt_iface | length > 0

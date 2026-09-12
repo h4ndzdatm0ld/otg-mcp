@@ -1,0 +1,85 @@
+---
+# Work out which PCI devices to act on, given interface names.
+#
+# The catch: a DPDK-bound NIC has no kernel interface, so its name cannot be
+# resolved by name once it is bound. The mapping is therefore recorded on the target at
+# bind time and read back on later runs, which is what lets a re-run or a revert
+# work from the interface name alone.
+
+- name: Validate explicitly supplied PCI addresses
+  ansible.builtin.assert:
+    that:
+      - otg_pci_devices | length == otg_interfaces | length
+      - otg_pci_devices | unique | length == otg_pci_devices | length
+    fail_msg: >-
+      otg_pci_devices must have exactly one unique entry per interface in
+      otg_interfaces. Got {{ otg_pci_devices | length }} address(es) for
+      {{ otg_interfaces | length }} interface(s). A mismatch pairs an address
+      with the wrong interface, and a shorter list silently drops devices from
+      the binding record so a later revert cannot find them.
+  when: otg_pci_devices | length > 0
+
+- name: Use explicitly supplied PCI addresses
+  ansible.builtin.set_fact:
+    dpdk_pci_devices: "{{ otg_pci_devices }}"
+  when: otg_pci_devices | length > 0
+
+- name: Resolve PCI addresses from interface names
+  when: otg_pci_devices | length == 0
+  block:
+    - name: Read the recorded interface-to-PCI mapping, if any
+      ansible.builtin.slurp:
+        src: "{{ dpdk_binding_record }}"
+      register: dpdk_record_raw
+      failed_when: false
+      check_mode: false
+
+    - name: Parse the recorded mapping
+      ansible.builtin.set_fact:
+        dpdk_recorded: >-
+          {{ (dpdk_record_raw.content | b64decode | from_json)
+             if dpdk_record_raw.content is defined else {} }}
+
+    - name: Look for a live kernel interface for each name
+      ansible.builtin.command: "readlink -f /sys/class/net/{{ item }}/device"
+      loop: "{{ otg_interfaces }}"
+      register: dpdk_iface_links
+      changed_when: false
+      failed_when: false
+
+    # A name resolves from the live interface when the kernel still owns it, and
+    # from the record when DPDK already does.
+    - name: Build the PCI list
+      ansible.builtin.set_fact:
+        dpdk_pci_devices: >-
+          {{ dpdk_pci_devices | default([]) + [
+               item.stdout | basename if item.rc == 0 and item.stdout
+               else dpdk_recorded[item.item] | default('')
+             ] }}
+      loop: "{{ dpdk_iface_links.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Fail on any interface that could not be resolved
+      ansible.builtin.assert:
+        that:
+          - dpdk_pci_devices | reject('equalto', '') | list | length == otg_interfaces | length
+        fail_msg: >-
+          Could not resolve a PCI address for every interface in
+          {{ otg_interfaces | join(', ') }}. Resolved: {{ dpdk_pci_devices }}.
+          If the NIC is already bound to DPDK its kernel interface is gone and
+          no binding was recorded at {{ dpdk_binding_record }}; supply
+          otg_pci_devices for it. Find the address with:
+          lspci -nn | grep -i ethernet
+
+# Publish the resolved addresses under the documented input name so later roles
+# (the compose template in particular) see real values whether the operator
+# supplied PCI addresses or only interface names.
+- name: Publish the resolved PCI addresses # noqa: var-naming[no-role-prefix]
+  ansible.builtin.set_fact:
+    otg_pci_devices: "{{ dpdk_pci_devices }}"
+
+- name: Report the devices being acted on
+  ansible.builtin.debug:
+    msg: >-
+      {{ otg_interfaces | zip(dpdk_pci_devices) | map('join', ' -> ') | join(', ') }}

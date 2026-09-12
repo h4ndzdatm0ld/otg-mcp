@@ -58,7 +58,7 @@ RUN_INTEGRATION_TESTS=1 uv run pytest -m integration
 ```
 
 No integration tests exist yet. New ones need `@pytest.mark.integration` plus a
-reachable generator — see `deploy/deployIxiaC.sh` for a local Ixia-C.
+reachable generator — see `ansible/README.md` to deploy one.
 
 ## Conventions
 

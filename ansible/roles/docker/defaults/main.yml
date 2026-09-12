@@ -1,0 +1,12 @@
+---
+docker_repo_probe_url: https://download.docker.com/linux
+
+# Used only when Docker's repository does not publish for this release. These
+# ship the same engine plus compose v2.
+docker_distro_packages:
+  - docker.io
+  - docker-compose-v2
+
+# Adding the login user to the docker group is root-equivalent on the host. Left
+# on because the rest of the suite manages containers without become.
+docker_add_user_to_group: true

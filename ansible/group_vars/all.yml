@@ -1,0 +1,77 @@
+---
+# Deployment mode: one-arm, two-arm, or three-arm. Determines how many
+# interfaces and traffic engines are required.
+otg_mode: one-arm
+
+# Packet path for the traffic engine:
+#   af_packet - kernel socket path. Any NIC, no host changes, ~3 Gbps ceiling.
+#   dpdk      - userspace poll mode. Reaches 10G line rate, requires the dpdk
+#               role to bind the NIC away from the kernel.
+otg_driver: af_packet
+
+# Interfaces the traffic engine transmits on. Required, per host. Deliberately
+# not auto-detected: detection cannot tell a management NIC from a test NIC, and
+# it silently accepts dead links.
+otg_interfaces: []
+
+# PCI addresses matching otg_interfaces, in order. Optional: the dpdk role
+# resolves them from the interface names and records the mapping on the target.
+# Only needed when a NIC is already DPDK-bound (so it has no kernel interface)
+# and no mapping was recorded. Find them with:
+#   readlink -f /sys/class/net/<iface>/device | xargs basename
+otg_pci_devices: []
+
+# Cores pinned to each traffic engine, as a cpuset. DPDK wants dedicated cores.
+# Core 0 handles most interrupt work, so leave it out where the host has enough
+# cores; on a 1-2 core VM set this to "0" or the container will not start.
+otg_cpu_cores: "1,2,3"
+
+# Ixia-C repository and the commits known to work together. Set
+# otg_update_repo=true to track the branch tip instead.
+otg_repo_url: https://github.com/open-traffic-generator/ixia-c.git
+otg_repo_dir: ixia-c
+otg_ixia_commit: 4e027bd
+otg_conformance_commit: 9a514ea0be7dddb312feb5789f5a8541291fbb5c
+otg_update_repo: false
+
+# Container image tags.
+otg_controller_version: latest
+otg_traffic_engine_version: latest
+otg_aur_version: latest
+
+# Controller API port.
+otg_api_port: 8443
+
+# Hugepages for DPDK, in 2MB pages. 2048 = 4GB, ample for a few ports.
+dpdk_hugepages: 2048
+
+# Some platforms (notably AMD IOMMUs) do not implement interrupt remapping, and
+# VFIO refuses to attach a group without it. Enabling this relaxes a protection:
+# a userspace driver could inject MSIs at the host. Required on such hosts;
+# leave false to have the preflight fail loudly instead of silently weakening
+# the host.
+dpdk_allow_unsafe_interrupts: false
+
+# Transmit a short flow during verification. This REPLACES whatever config is
+# loaded on the generator, so the verify verb turns it off; a deploy leaves it on
+# because a deployment that cannot pass traffic is not finished.
+otg_run_traffic_verify: true
+
+# Compose project name, which docker derives from the directory it runs in.
+otg_compose_project: deployments
+
+# Sudo password, taken from the BECOME_PASS environment variable when set so it
+# never appears on a command line or in the inventory. Leave BECOME_PASS unset to
+# be prompted (--ask-become-pass), or use passwordless sudo on the targets.
+ansible_become_password: "{{ lookup('env', 'BECOME_PASS') | default(omit, true) }}"
+
+# Layer1 line speed, e.g. speed_10_gbps. Required for DPDK ports: DPDK does not
+# report a line speed and the controller refuses traffic config without one.
+# Leave null for af_packet, which infers it.
+otg_link_speed: null
+
+# Autonegotiation for the layer1 config. Keep this true on copper: 10GBASE-T
+# requires autonegotiation, and forcing a speed with it off leaves the port link
+# down while the engine still counts frames, so a dead link looks like a
+# successful transmit. Set false only for optics that need a forced speed.
+otg_link_autoneg: true

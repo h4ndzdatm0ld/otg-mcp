@@ -1,0 +1,101 @@
+---
+# Hand the NIC back to the kernel. Reached via the dpdk_state=absent variable,
+# or the dpdk-revert.yml playbook.
+#
+# A DPDK-bound NIC is invisible to the kernel, so this is the only way back to
+# an interface you can address, run ethtool against, or use with af_packet.
+
+- name: Resolve the PCI address of each interface
+  ansible.builtin.include_tasks: resolve.yml
+
+- name: Refuse to touch anything the host needs to stay reachable
+  ansible.builtin.include_tasks: guard.yml
+
+- name: Stop containers still holding the device
+  community.docker.docker_compose_v2:
+    project_src: "{{ ansible_env.HOME }}/{{ otg_repo_dir }}/deployments"
+    state: absent
+  failed_when: false
+
+- name: Clear the vfio-pci driver override
+  become: true
+  ansible.builtin.shell:
+    cmd: "echo > /sys/bus/pci/devices/{{ item }}/driver_override"
+  loop: "{{ dpdk_pci_devices }}"
+  changed_when: true
+
+- name: Unbind from vfio-pci
+  become: true
+  ansible.builtin.shell:
+    cmd: "echo {{ item }} > /sys/bus/pci/devices/{{ item }}/driver/unbind"
+  loop: "{{ dpdk_pci_devices }}"
+  changed_when: true
+  failed_when: false
+
+- name: Probe so the kernel driver reclaims the device
+  become: true
+  ansible.builtin.shell:
+    cmd: "echo {{ item }} > /sys/bus/pci/drivers_probe"
+  loop: "{{ dpdk_pci_devices }}"
+  changed_when: true
+
+- name: Read the driver now bound to each device
+  ansible.builtin.command: "readlink -f /sys/bus/pci/devices/{{ item }}/driver"
+  loop: "{{ dpdk_pci_devices }}"
+  register: dpdk_reverted_drivers
+  changed_when: false
+  failed_when: false
+
+- name: Report the driver each device returned to
+  ansible.builtin.debug:
+    msg: >-
+      {{ item.item }} is now on
+      {{ item.stdout | basename if item.stdout | default('') else 'no driver' }}
+  loop: "{{ dpdk_reverted_drivers.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+# The unbind took the link down, so bring it back up: a NIC returned to the
+# kernel should be immediately usable, not left NO-CARRIER.
+- name: Bring the reclaimed interfaces up
+  become: true
+  ansible.builtin.command: "ip link set {{ item }} up"
+  loop: "{{ otg_interfaces }}"
+  changed_when: true
+  failed_when: false
+
+- name: Report the reclaimed link state
+  ansible.builtin.command: "ip -br link show {{ item }}"
+  loop: "{{ otg_interfaces }}"
+  register: dpdk_reclaimed_links
+  changed_when: false
+  failed_when: false
+
+- name: Show reclaimed links
+  ansible.builtin.debug:
+    msg: "{{ item.stdout | default('interface not present') }}"
+  loop: "{{ dpdk_reclaimed_links.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Forget the recorded binding
+  become: true
+  ansible.builtin.file:
+    path: "{{ dpdk_binding_record }}"
+    state: absent
+
+- name: Remove the persisted unsafe-interrupts option
+  become: true
+  ansible.builtin.file:
+    path: /etc/modprobe.d/vfio-dpdk.conf
+    state: absent
+  when: dpdk_revert_unsafe_interrupts
+
+- name: Release hugepages
+  become: true
+  ansible.posix.sysctl:
+    name: vm.nr_hugepages
+    value: "0"
+    sysctl_file: /etc/sysctl.d/99-dpdk-hugepages.conf
+    reload: true
+  when: dpdk_revert_hugepages

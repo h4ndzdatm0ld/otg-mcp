@@ -1,0 +1,16 @@
+---
+# Return DPDK-bound NICs to their kernel driver. A DPDK-bound NIC is invisible
+# to the kernel, so this is the way back to an addressable interface.
+#   docker compose run --rm ansible revert-dpdk
+- name: Return NICs to the kernel driver
+  hosts: '{{ otg_target | default("traffic_generators") }}'
+  gather_facts: true
+  roles:
+    - role: preflight
+      tags: [always]
+
+    - role: sudo_compat
+      tags: [always]
+    - role: dpdk
+      vars:
+        dpdk_state: absent

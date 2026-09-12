@@ -1,0 +1,30 @@
+---
+- name: Deploy Ixia-C traffic generators
+  hosts: '{{ otg_target | default("traffic_generators") }}'
+  gather_facts: true
+
+  roles:
+    - role: preflight
+      tags: [always]
+
+    - role: sudo_compat
+      tags: [always]
+
+    - role: docker
+      tags: [docker, prereqs]
+
+    - role: net_utils
+      tags: [net_utils, prereqs]
+
+    - role: otgen
+      tags: [otgen, prereqs]
+
+    - role: dpdk
+      when: otg_driver == 'dpdk'
+      tags: [dpdk]
+
+    - role: ixia_c
+      tags: [deploy]
+
+    - role: verify
+      tags: [verify]

@@ -1,0 +1,5 @@
+---
+ixia_c_required_interfaces:
+  one-arm: 1
+  two-arm: 2
+  three-arm: 3

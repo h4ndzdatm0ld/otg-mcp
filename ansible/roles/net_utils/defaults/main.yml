@@ -1,0 +1,21 @@
+---
+# Package names, not command names. The shell script kept a list of commands and
+# a case statement mapping the ones whose package name differs; naming packages
+# directly removes that translation step.
+net_utils_packages:
+  - bridge-utils
+  - conntrack
+  - curl
+  - ethtool
+  - iperf3
+  - iproute2
+  - iputils-arping
+  - iputils-ping
+  - lldpd
+  - lsof
+  - mtr-tiny
+  - net-tools
+  - nmap
+  - tcpdump
+  - traceroute
+  - tshark

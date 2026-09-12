@@ -1,0 +1,48 @@
+{
+  "ports": [
+{% for iface in otg_interfaces %}
+    {"name": "p{{ loop.index }}", "location": "localhost:{{ 5555 + loop.index0 }}"}{{ "," if not loop.last }}
+{% endfor %}
+  ],
+{% if otg_link_speed and verify_include_layer1 | default(true) %}
+  {# DPDK does not report a line speed, and the controller rejects any traffic
+     config for a port whose speed it cannot determine: "Port line speed not
+     found". af_packet infers it, which is why this only matters here. #}
+  "layer1": [
+    {
+      "name": "l1",
+      "port_names": [{% for iface in otg_interfaces %}"p{{ loop.index }}"{{ "," if not loop.last }}{% endfor %}],
+      "speed": "{{ otg_link_speed }}",
+      "auto_negotiate": {{ otg_link_autoneg | bool | lower }}
+    }
+  ],
+{% endif %}
+  "flows": [
+    {
+      "name": "{{ verify_flow_name }}",
+      "tx_rx": {
+        "choice": "port",
+        "port": {
+          "tx_name": "p1",
+          "rx_names": ["p{{ 1 if otg_mode == 'one-arm' else 2 }}"]
+        }
+      },
+      "packet": [
+        {
+          "choice": "ethernet",
+          "ethernet": {
+            "src": {"choice": "value", "value": "02:00:00:00:01:aa"},
+            "dst": {"choice": "value", "value": "02:00:00:00:02:aa"}
+          }
+        }
+      ],
+      "size": {"choice": "fixed", "fixed": {{ verify_frame_size }}},
+      "duration": {
+        "choice": "fixed_packets",
+        "fixed_packets": {"packets": {{ verify_frame_count }}}
+      },
+      "rate": {"choice": "pps", "pps": {{ verify_frame_rate }}},
+      "metrics": {"enable": true}
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+---
+verify_flow_name: otg-mcp-verify
+verify_frame_size: 128
+verify_frame_count: 100
+verify_frame_rate: 100
+verify_config_path: /tmp/otg-mcp-verify.json
+
+# A DPDK port takes a few seconds to establish link after set_config; without a
+# pause the port reads "down" and the transmit is counted against a dead link.
+verify_link_settle_seconds: 8
+
+# Port names the template generates, one per interface.
+verify_port_names: >-
+  {{ range(1, (otg_interfaces | length) + 1) | map('regex_replace', '^', 'p') | list }}

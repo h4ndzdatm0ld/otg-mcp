@@ -1,0 +1,115 @@
+---
+- name: Assert the interface count matches the deployment mode
+  ansible.builtin.assert:
+    that:
+      - otg_interfaces | length == ixia_c_required_interfaces[otg_mode]
+    fail_msg: >-
+      otg_mode={{ otg_mode }} needs
+      {{ ixia_c_required_interfaces[otg_mode] }} interface(s), but otg_interfaces
+      has {{ otg_interfaces | length }}: {{ otg_interfaces | join(', ') }}
+
+# The shell script auto-detected interfaces by pattern and could pick the
+# management NIC or a NO-CARRIER port. Interfaces are now explicit, so the only
+# checks left are that they are real and safe to use.
+- name: Confirm each interface exists on the host
+  ansible.builtin.stat:
+    path: "/sys/class/net/{{ item }}"
+  loop: "{{ otg_interfaces }}"
+  register: ixia_c_iface_stat
+
+- name: Fail on interfaces that do not exist
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+    fail_msg: >-
+      Interface {{ item.item }} does not exist on {{ inventory_hostname }}.
+      Note that a DPDK-bound interface disappears from the kernel by design; if
+      this deployment previously ran with otg_driver=dpdk, that is expected.
+  loop: "{{ ixia_c_iface_stat.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: otg_driver != 'dpdk'
+
+- name: Refuse to use the management interface for traffic
+  ansible.builtin.assert:
+    that:
+      - item != ansible_default_ipv4.interface | default('__none__')
+    fail_msg: >-
+      {{ item }} carries this host's default route. Generating traffic on the
+      management interface risks cutting off the host.
+  loop: "{{ otg_interfaces }}"
+
+- name: Warn about interfaces with no carrier
+  ansible.builtin.command: "cat /sys/class/net/{{ item }}/carrier"
+  loop: "{{ otg_interfaces }}"
+  register: ixia_c_carrier
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: otg_driver != 'dpdk'
+
+- name: Report interfaces with no link
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: {{ item.item }} reports no carrier. Traffic will transmit into a
+      dead link and every metric will read zero.
+  loop: "{{ ixia_c_carrier.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - ixia_c_carrier is not skipped
+    - item.stdout | default('0') != '1'
+
+# The dpdk role resolves and publishes these. Running only --tags deploy on a
+# DPDK host would otherwise render pci@ entries from an empty list.
+- name: Assert PCI addresses are known for a DPDK deployment
+  ansible.builtin.assert:
+    that:
+      - otg_pci_devices | length == otg_interfaces | length
+    fail_msg: >-
+      otg_driver=dpdk but no PCI addresses are known. The dpdk role resolves
+      them, so do not skip it (a --tags deploy run does). Re-run without the tag
+      filter, or set otg_pci_devices explicitly.
+  when: otg_driver == 'dpdk'
+
+- name: Clone the Ixia-C repository
+  ansible.builtin.git:
+    repo: "{{ otg_repo_url }}"
+    dest: "{{ ansible_env.HOME }}/{{ otg_repo_dir }}"
+    version: "{{ 'HEAD' if otg_update_repo else otg_ixia_commit }}"
+    force: true
+  register: ixia_c_repo_state
+
+- name: Render the compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ ansible_env.HOME }}/{{ otg_repo_dir }}/deployments/docker-compose.yml"
+    mode: "0644"
+  register: ixia_c_compose
+
+- name: Deploy the containers
+  community.docker.docker_compose_v2:
+    project_src: "{{ ansible_env.HOME }}/{{ otg_repo_dir }}/deployments"
+    state: present
+    recreate: "{{ 'always' if ixia_c_compose.changed else 'auto' }}"
+    # A traffic engine from a previous compose file keeps hold of the NIC, which
+    # in DPDK mode leaves the new engine unable to claim the device at all.
+    remove_orphans: true
+  register: ixia_c_deploy
+
+- name: Wait for the controller API to answer
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ otg_api_port }}/capabilities/version"
+    validate_certs: false
+    status_code: 200
+  register: ixia_c_api
+  retries: 20
+  delay: 3
+  until: ixia_c_api.status == 200
+
+- name: Report the controller version
+  ansible.builtin.debug:
+    msg: >-
+      controller ready: app_version={{ ixia_c_api.json.app_version }}
+      sdk={{ ixia_c_api.json.sdk_version }} | mode={{ otg_mode }}
+      driver={{ otg_driver }}
