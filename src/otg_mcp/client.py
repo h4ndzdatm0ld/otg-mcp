@@ -6,10 +6,8 @@ using snappi API directly, with proper target management and version detection.
 """
 
 import logging
-import os
 import time
 import traceback
-import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
@@ -102,7 +100,8 @@ class OtgClient:
             Location string for snappi client
         """
         logger.info(f"Creating URL for direct connection to target {target}")
-        return f"https://{target}" if ":" not in target else f"https://{target}"
+        logger.info("A target key is its address, so it is used verbatim")
+        return f"https://{target}"
 
     def _discover_api_schema(self, api) -> Dict[str, Any]:
         """
@@ -369,219 +368,6 @@ class OtgClient:
 
         return api.get_metrics(request)
 
-    def _start_capture(self, api: Any, port_names: Union[str, List[str]]) -> None:
-        """
-        Start packet capture on one or more ports.
-
-        Args:
-            api: Snappi API client
-            port_names: List or single name of port(s) to capture on
-        """
-        logger.info(f"Starting capture for ports: {port_names}")
-
-        logger.debug("Converting port names to list for consistent handling")
-        port_list = [port_names] if isinstance(port_names, str) else list(port_names)
-
-        logger.debug("Detecting available API methods for capture")
-        api_methods = [method for method in dir(api) if not method.startswith("_")]
-        logger.debug(f"Available API methods: {api_methods}")
-
-        logger.info("Trying multiple methods to start capture based on available API")
-        try:
-            if "capture_state" in api_methods:
-                logger.info("Using capture_state() method")
-                cs = api.capture_state()
-                cs.state = "start"
-                cs.port_names = port_list
-                api.set_capture_state(cs)
-            elif "start_capture" in api_methods:
-                logger.info("Using start_capture() method")
-                for port in port_list:
-                    api.start_capture(port_name=port)
-            elif "control_state" in api_methods:
-                logger.info("Using control_state() method for capture")
-                cs = api.control_state()
-
-                logger.debug("Checking if there's a CAPTURE choice available")
-                if hasattr(cs, "CAPTURE") and hasattr(cs, "choice"):
-                    logger.debug("Setting control_state choice to CAPTURE")
-                    cs.choice = cs.CAPTURE
-
-                    logger.debug("Checking for capture attribute in control_state")
-                    if hasattr(cs, "capture"):
-                        logger.debug("Found capture attribute in control_state")
-
-                        if hasattr(cs.capture, "port_names"):
-                            logger.debug("Setting port_names in capture")
-                            cs.capture.port_names = port_list
-
-                        if hasattr(cs.capture, "state"):
-                            logger.debug("Setting capture state to start")
-                            if hasattr(cs.capture, "START"):
-                                cs.capture.state = cs.capture.START
-                            else:
-                                cs.capture.state = "start"
-
-                logger.info(
-                    f"Setting control state to start capture on ports: {port_list}"
-                )
-                api.set_control_state(cs)
-            else:
-                logger.error("No compatible capture method found in API")
-                raise NotImplementedError("No method available to start capture")
-        except Exception as e:
-            logger.error(f"Error starting capture: {e}")
-            raise
-
-    def _stop_capture(self, api: Any, port_names: Union[str, List[str]]) -> None:
-        """
-        Stop packet capture on one or more ports.
-
-        Args:
-            api: Snappi API client
-            port_names: List or single name of port(s) to stop capture on
-        """
-        logger.info(f"Stopping capture for ports: {port_names}")
-
-        logger.debug("Converting port names to list for consistent handling")
-        port_list = [port_names] if isinstance(port_names, str) else list(port_names)
-
-        logger.debug("Detecting available API methods for capture")
-        api_methods = [method for method in dir(api) if not method.startswith("_")]
-        logger.debug(f"Available API methods: {api_methods}")
-
-        try:
-            if "capture_state" in api_methods:
-                logger.info("Using capture_state() method")
-                cs = api.capture_state()
-                cs.state = "stop"
-                cs.port_names = port_list
-                api.set_capture_state(cs)
-            elif "stop_capture" in api_methods:
-                logger.info("Using stop_capture() method")
-                for port in port_list:
-                    api.stop_capture(port_name=port)
-            elif "control_state" in api_methods:
-                logger.info("Using control_state() method for capture")
-                cs = api.control_state()
-
-                if hasattr(cs, "CAPTURE") and hasattr(cs, "choice"):
-                    logger.debug("Setting control_state choice to CAPTURE")
-                    cs.choice = cs.CAPTURE
-
-                    if hasattr(cs, "capture"):
-                        logger.debug("Found capture attribute in control_state")
-
-                        if hasattr(cs.capture, "port_names"):
-                            logger.debug("Setting port_names in capture")
-                            cs.capture.port_names = port_list
-
-                        if hasattr(cs.capture, "state"):
-                            logger.debug("Setting capture state to stop")
-                            if hasattr(cs.capture, "STOP"):
-                                cs.capture.state = cs.capture.STOP
-                            else:
-                                cs.capture.state = "stop"
-
-                logger.info(
-                    f"Setting control state to stop capture on ports: {port_list}"
-                )
-                api.set_control_state(cs)
-            else:
-                logger.error("No compatible capture method found in API")
-                raise NotImplementedError("No method available to stop capture")
-        except Exception as e:
-            logger.error(f"Error stopping capture: {e}")
-            raise
-
-    def _get_capture(
-        self, api: Any, port_name: str, output_dir: Optional[str] = None
-    ) -> str:
-        """
-        Get capture data and save to a file.
-
-        Args:
-            api: Snappi API client
-            port_name: Name of port to get capture from
-            output_dir: Directory to save the capture file (default: /tmp)
-
-        Returns:
-            File path where the capture was saved
-        """
-        if output_dir is None:
-            logger.debug("Using default output directory: /tmp")
-            output_dir = "/tmp"
-
-        logger.debug(f"Creating output directory if it doesn't exist: {output_dir}")
-        os.makedirs(output_dir, exist_ok=True)
-
-        logger.debug("Generating unique file name for capture data")
-        file_name = f"capture_{port_name}_{uuid.uuid4().hex[:8]}.pcap"
-        file_path = os.path.join(output_dir, file_name)
-
-        logger.info(f"Getting capture data for port {port_name}")
-
-        logger.debug("Detecting available API methods for capture")
-        api_methods = [method for method in dir(api) if not method.startswith("_")]
-        logger.debug(f"Available API methods: {api_methods}")
-
-        try:
-            if "capture_request" in api_methods and "get_capture" in api_methods:
-                logger.info("Using capture_request() and get_capture() methods")
-                req = api.capture_request()
-                req.port_name = port_name
-                capture_data = api.get_capture(req)
-
-                logger.info(f"Saving capture data to {file_path}")
-                with open(file_path, "wb") as pcap:
-                    pcap.write(capture_data.read())
-
-            elif "control_state" in api_methods:
-                logger.info("Using control_state() method for capture retrieval")
-                cs = api.control_state()
-
-                if hasattr(cs, "CAPTURE") and hasattr(cs, "choice"):
-                    logger.debug("Setting control_state choice to CAPTURE")
-                    cs.choice = cs.CAPTURE
-
-                    if hasattr(cs, "capture"):
-                        logger.debug("Found capture attribute in control_state")
-
-                        if hasattr(cs.capture, "port_name"):
-                            logger.debug(f"Setting port_name to {port_name}")
-                            cs.capture.port_name = port_name
-
-                        if hasattr(cs.capture, "state"):
-                            logger.debug("Setting capture state to RETRIEVE")
-                            if hasattr(cs.capture, "RETRIEVE"):
-                                cs.capture.state = cs.capture.RETRIEVE
-                            else:
-                                cs.capture.state = "retrieve"
-
-                logger.info(
-                    f"Setting control state to retrieve capture on port {port_name}"
-                )
-                result = api.set_control_state(cs)
-
-                if hasattr(result, "capture") and hasattr(result.capture, "data"):
-                    logger.info(f"Saving capture data to {file_path}")
-                    with open(file_path, "wb") as pcap:
-                        pcap.write(result.capture.data)
-                else:
-                    raise ValueError(
-                        f"No capture data found in control_state result: {result}"
-                    )
-            else:
-                logger.error("No compatible capture retrieval method found in API")
-                raise NotImplementedError("No method available to get capture data")
-
-        except Exception as e:
-            logger.error(f"Error getting capture data: {e}")
-            raise
-
-        logger.info(f"Capture data saved to {file_path}")
-        return file_path
-
     async def get_traffic_generators_status(self):
         """Legacy method that maps to list_traffic_generators."""
         logger.info("Legacy call to get_traffic_generators_status")
@@ -703,10 +489,26 @@ class OtgClient:
             logger.info("Stopping traffic on device")
             success = self._stop_traffic(api)
 
+            logger.info("Reporting failure in status, not only in the result payload")
+            logger.info("A caller that checks status alone must not read a failed")
+            logger.info("stop as a successful one")
+            if not success:
+                return ControlResponse(
+                    status="error",
+                    action="traffic_generation",
+                    result={
+                        "verified": False,
+                        "error": (
+                            "No supported stop method succeeded, or traffic was "
+                            "still flowing when verification timed out"
+                        ),
+                    },
+                )
+
             return ControlResponse(
                 status="success",
                 action="traffic_generation",
-                result={"verified": success},
+                result={"verified": True},
             )
         except Exception as e:
             logger.error(f"Error stopping traffic: {e}")
@@ -913,8 +715,10 @@ class OtgClient:
                     )
 
                 logger.info(f"Testing connection to {hostname}")
+                logger.info("Availability means the target answered, so build a")
+                logger.info("client for it rather than asserting True unconditionally")
                 try:
-                    logger.info("Simple availability check")
+                    self._get_api_client(hostname)
                     gen_info.available = True
                 except Exception as e:
                     logger.warning(f"Error connecting to {hostname}: {e}")

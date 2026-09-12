@@ -90,12 +90,15 @@ class TestTargetConfig:
             ({"name": "n1"}, None, "n1"),
             ({"location": "loc1", "name": "n1"}, "loc1", "n1"),
             ({}, None, None),
-            # interface alone fills neither field. The location and name validators
-            # only see fields validated before them, and interface is declared last,
-            # so it is never visible. Pinned deliberately: this predates the Pydantic
-            # V2 port and the port preserved it rather than silently changing it.
-            ({"interface": "eth0"}, None, None),
-            ({"interface": "eth0", "location": "loc1"}, "loc1", "loc1"),
+            # interface fills both fields. This is the backward compatibility the
+            # model exists to provide, and it used to silently fail: the fallbacks
+            # were per-field validators, which see only fields declared before
+            # them, and interface is declared last. A model validator now sees
+            # every value at once.
+            ({"interface": "eth0"}, "eth0", "eth0"),
+            # An explicit location wins for location, but name still prefers
+            # interface over location, which is the documented precedence.
+            ({"interface": "eth0", "location": "loc1"}, "loc1", "eth0"),
         ],
     )
     def test_port_config_fallbacks(self, kwargs, expected_location, expected_name):

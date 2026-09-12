@@ -1,15 +1,15 @@
 import json
 import logging
 import os
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
     ValidationError,
-    ValidationInfo,
     field_validator,
+    model_validator,
 )
 from pydantic_settings import BaseSettings
 
@@ -55,59 +55,49 @@ class PortConfig(BaseModel):
     """Configuration for a port on a traffic generator."""
 
     location: Optional[str] = Field(
-        None,
-        description="Location of the port (hostname:port)",
-        validate_default=True,
+        None, description="Location of the port (hostname:port)"
     )
-    name: Optional[str] = Field(
-        None, description="Name of the port", validate_default=True
-    )
+    name: Optional[str] = Field(None, description="Name of the port")
     interface: Optional[str] = Field(
         None, description="Interface name (backward compatibility)"
     )
 
-    @field_validator("location", mode="before")
+    @model_validator(mode="before")
     @classmethod
-    def validate_location(cls, v: Optional[str], info: ValidationInfo) -> Optional[str]:
-        """Fall back to interface when location is not provided.
+    def derive_from_interface(cls, data: Any) -> Any:
+        """Fill location and name from interface when they are omitted.
 
-        validate_default keeps this running when the field is omitted, matching
-        the always=True behaviour this validator had before the Pydantic V2 port.
-        info.data holds only the fields validated before this one, so it mirrors
-        the V1 values mapping exactly.
+        A model validator rather than field validators, because field validators
+        run in field-declaration order and see only the fields validated before
+        them. interface is declared last, so per-field fallbacks read an
+        info.data that never contains it: PortConfig(interface="eth0") silently
+        produced location=None and name=None, defeating the backward
+        compatibility this exists to provide. A model validator sees every value
+        at once and so does not depend on declaration order.
 
         Args:
-            v: Supplied location, if any
-            info: Validation context carrying previously validated fields
+            data: Raw input, normally a mapping of field names to values
 
         Returns:
-            The location to use
+            The input with location and name filled in where they were absent
         """
-        if v is None and info.data.get("interface") is not None:
+        if not isinstance(data, dict):
+            return data
+
+        interface = data.get("interface")
+        if data.get("location") is None and interface is not None:
             logger.debug("Deriving port location from interface")
-            return info.data["interface"]
-        return v
+            data["location"] = interface
 
-    @field_validator("name", mode="before")
-    @classmethod
-    def validate_name(cls, v: Optional[str], info: ValidationInfo) -> Optional[str]:
-        """Fall back to interface, then location, when name is not provided.
-
-        Args:
-            v: Supplied name, if any
-            info: Validation context carrying previously validated fields
-
-        Returns:
-            The name to use
-        """
-        if v is None:
-            if info.data.get("interface") is not None:
+        if data.get("name") is None:
+            if interface is not None:
                 logger.debug("Deriving port name from interface")
-                return info.data["interface"]
-            if info.data.get("location") is not None:
+                data["name"] = interface
+            elif data.get("location") is not None:
                 logger.debug("Deriving port name from location")
-                return info.data["location"]
-        return v
+                data["name"] = data["location"]
+
+        return data
 
 
 class TargetConfig(BaseModel):
@@ -203,7 +193,7 @@ class Config:
                         f"Invalid target configuration for '{hostname}': {str(e)}"
                     )
                     logger.error(error_msg)
-                    if "extra fields not permitted" in str(e):
+                    if "are not permitted" in str(e).lower():
                         logger.error(
                             "The configuration contains fields that are not allowed. "
                             "apiVersion should not be included in target configuration."
@@ -248,16 +238,11 @@ class Config:
             module_logger = logging.getLogger("otg_mcp")
             module_logger.setLevel(log_level)
 
-            logger.info("Checking if root logger has handlers, adding if needed")
-            if not root_logger.handlers:
-                console_handler = logging.StreamHandler()
-                console_handler.setLevel(log_level)
-                formatter = logging.Formatter(
-                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-                )
-                console_handler.setFormatter(formatter)
-                root_logger.addHandler(console_handler)
-                print("Added console handler to root logger")
+            logger.info("Applying the level to every existing root handler")
+            logger.info("basicConfig above installs one when the root has none, so")
+            logger.info("there is no separate fallback branch to maintain here")
+            for handler in root_logger.handlers:
+                handler.setLevel(log_level)
 
             logger.info("Logging system initialized with handlers and formatters")
             logger.info(f"Logging configured at level {self.logging.LOG_LEVEL}")
