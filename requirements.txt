@@ -48,7 +48,7 @@ beartype==0.22.9
     # via
     #   py-key-value-aio
     #   py-key-value-shared
-black==26.5.1
+black==26.3.1
     # via hatch.envs.default
 burner-redis==0.1.7
     # via pydocket
