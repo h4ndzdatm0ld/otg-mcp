@@ -162,6 +162,7 @@ When integrating with an MCP client application, you can use the following confi
 {
   "OpenTrafficGenerator - MCP": {
     "autoApprove": [
+      "get_protocol_metrics",
       "get_available_targets",
       "get_capture",
       "get_config",
@@ -189,6 +190,28 @@ When integrating with an MCP client application, you can use the following confi
 The `autoApprove` list must match the tool names registered by the server. Tool
 names are derived from `OtgMcpServer` methods by stripping the `tool_` prefix, so
 adding or renaming a `tool_*` method means updating this list.
+
+### Protocol Metrics
+
+Use `get_protocol_metrics` to retrieve metrics for a specific protocol. Pass the
+target, protocol name, and optionally the protocol instance names to filter:
+
+```json
+{
+  "target": "traffic-gen-1.example.com:8443",
+  "protocol": "bgpv4",
+  "names": ["edge-bgp"]
+}
+```
+
+Supported protocol metrics are `bgpv4`, `bgpv6`, `bmp_server`,
+`dhcpv4_client`, `dhcpv4_server`, `dhcpv6_client`, `dhcpv6_server`, `isis`,
+`lacp`, `lag`, `lldp`, `macsec`, `mka`, `ospfv2`, `ospfv3`, and `rsvp`.
+Available protocols depend on the target implementation.
+
+When `set_config` receives
+`options.protocol_options.auto_start_all: true`, the server explicitly starts
+all configured protocols after applying the configuration.
 
 
 ## Development

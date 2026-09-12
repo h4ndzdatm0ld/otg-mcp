@@ -3,6 +3,7 @@ Test for set_config functionality that returns applied configuration.
 """
 
 import logging
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -119,3 +120,47 @@ async def test_set_config_serialization_error(client, mock_api):
     assert response.status == "error"
     assert "error" in response.config
     assert "Serialization error" in response.config["error"]
+
+
+@pytest.mark.asyncio
+async def test_set_config_explicit_auto_start_starts_protocols(client, mock_api):
+    """Explicit auto-start is enforced after applying the configuration."""
+    client._get_api_client = MagicMock(return_value=mock_api)
+    protocol_state = SimpleNamespace(state=None)
+    protocol_control = SimpleNamespace(
+        ALL="all",
+        choice=None,
+        all=protocol_state,
+    )
+    control = SimpleNamespace(
+        PROTOCOL="protocol",
+        choice=None,
+        protocol=protocol_control,
+    )
+    mock_api.control_state.return_value = control
+    test_config = {
+        "options": {"protocol_options": {"auto_start_all": True}},
+        "devices": [{"name": "router"}],
+    }
+
+    response = await client.set_config(config=test_config, target="localhost")
+
+    assert response.status == "success"
+    assert control.choice == control.PROTOCOL
+    assert protocol_control.choice == protocol_control.ALL
+    assert protocol_state.state == "start"
+    mock_api.set_control_state.assert_called_once_with(control)
+
+
+@pytest.mark.asyncio
+async def test_set_config_does_not_override_implicit_protocol_state(client, mock_api):
+    """Configs without an explicit auto-start option do not add control calls."""
+    client._get_api_client = MagicMock(return_value=mock_api)
+
+    response = await client.set_config(
+        config={"devices": [{"name": "router"}]},
+        target="localhost",
+    )
+
+    assert response.status == "success"
+    mock_api.set_control_state.assert_not_called()

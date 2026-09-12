@@ -35,6 +35,24 @@ logger.setLevel(logging.INFO)
 
 REMOTE_SCHEMA_PATH = "/docs/openapi.json"
 REMOTE_SCHEMA_TIMEOUT_SECONDS = 30
+PROTOCOL_METRICS_NAME_FIELDS = {
+    "bgpv4": "peer_names",
+    "bgpv6": "peer_names",
+    "bmp_server": "server_names",
+    "dhcpv4_client": "client_names",
+    "dhcpv4_server": "server_names",
+    "dhcpv6_client": "client_names",
+    "dhcpv6_server": "server_names",
+    "isis": "router_names",
+    "lacp": "lag_member_port_names",
+    "lag": "lag_names",
+    "lldp": "lldp_names",
+    "macsec": "secure_entity_names",
+    "mka": "peer_names",
+    "ospfv2": "router_names",
+    "ospfv3": "router_names",
+    "rsvp": "router_names",
+}
 
 
 @dataclass
@@ -373,6 +391,33 @@ class OtgClient:
         logger.info("Legacy call to get_traffic_generators_status")
         return await self.list_traffic_generators()
 
+    async def get_protocol_metrics(
+        self,
+        target: str,
+        protocol: str,
+        names: Optional[List[str]] = None,
+    ) -> MetricsResponse:
+        """Read metrics for one protocol type, optionally filtered by names."""
+        try:
+            if protocol not in PROTOCOL_METRICS_NAME_FIELDS:
+                supported = ", ".join(sorted(PROTOCOL_METRICS_NAME_FIELDS))
+                raise ValueError(f"Protocol metrics must be one of: {supported}")
+            api = self._get_api_client(target)
+            request = api.metrics_request()
+            request.choice = protocol
+            if names:
+                metrics_filter = getattr(request, protocol)
+                setattr(
+                    metrics_filter,
+                    PROTOCOL_METRICS_NAME_FIELDS[protocol],
+                    names,
+                )
+            response = api.get_metrics(request)
+            return MetricsResponse(metrics=response.serialize(encoding=response.DICT))
+        except Exception as exc:
+            logger.exception("Protocol metrics failed")
+            return MetricsResponse(status="error", metrics={"error": str(exc)})
+
     async def set_config(
         self, config: Dict[str, Any], target: Optional[str] = None
     ) -> ConfigResponse:
@@ -391,6 +436,13 @@ class OtgClient:
         try:
             logger.info(f"Getting API client for {target or 'localhost'}")
             api = self._get_api_client(target or "localhost")
+            auto_start_all = (
+                isinstance(config, dict)
+                and config.get("options", {})
+                .get("protocol_options", {})
+                .get("auto_start_all")
+                is True
+            )
 
             logger.info("Processing config based on type")
             if isinstance(config, dict):
@@ -401,6 +453,14 @@ class OtgClient:
             else:
                 logger.info("Using config object directly")
                 api.set_config(config)
+
+            if auto_start_all:
+                logger.info("Explicitly starting all protocols requested by config")
+                control = api.control_state()
+                control.choice = control.PROTOCOL
+                control.protocol.choice = control.protocol.ALL
+                control.protocol.all.state = "start"
+                api.set_control_state(control)
 
             logger.info("Retrieving the applied configuration")
             config = api.get_config()
