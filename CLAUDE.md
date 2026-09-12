@@ -115,6 +115,20 @@ Traffic control is written as feature-detection fallback chains rather than vers
 
 `client.py` uses `aiohttp` for the raw `/capabilities/version` probe and `snappi` for everything else; both are declared dependencies.
 
+## Dependencies
+
+Two files pin dependencies and they are not equivalent. `pyproject.toml` holds the
+declared ranges and `uv.lock` the resolved set for development; `requirements.txt`
+and `requirements/requirements-test.txt` are **generated lockfiles**
+(hatch-pip-compile, see their headers) and `requirements.txt` is what the Docker
+image installs. Regenerate them with `hatch run update`, never by hand: editing one
+pinned line leaves the lock internally inconsistent, and regenerating on macOS
+silently drops Linux-only packages the image needs.
+
+Dependabot is therefore pointed at the `uv` ecosystem, not `pip`, so it stops
+opening PRs against the generated lockfile. Fifteen such PRs accumulated and every
+one proposed a downgrade by the time it was reviewed.
+
 ## Testing conventions
 
 `tests/conftest.py` inserts `src/` on `sys.path` and provides `api_schema` (parsed `tests/fixtures/apiSchema.yml`), `test_config`, `router` (an `OtgClient`), and `example_target_config`. Tests never touch real hardware; stub `_fetch_remote_schema` rather than reaching for a network, and mock the snappi API object. `tests/schema/` covers per-target fetch, caching, isolation and malformed-document handling. See `tests/README.md`.
