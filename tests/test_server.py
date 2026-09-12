@@ -80,10 +80,7 @@ class TestOtgMcpServer:
         # Simplify the test - we just want to verify that a health status
         # object has the expected properties
         target_info = TargetHealthInfo(name="target1", healthy=True)
-        health_status = HealthStatus(
-            status="success",
-            targets={"target1": target_info}
-        )
+        health_status = HealthStatus(status="success", targets={"target1": target_info})
 
         # Verify health status properties
         assert health_status.status == "success"

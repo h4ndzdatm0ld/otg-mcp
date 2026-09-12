@@ -68,9 +68,7 @@ class PortConfig(BaseModel):
 
     @field_validator("location", mode="before")
     @classmethod
-    def validate_location(
-        cls, v: Optional[str], info: ValidationInfo
-    ) -> Optional[str]:
+    def validate_location(cls, v: Optional[str], info: ValidationInfo) -> Optional[str]:
         """Fall back to interface when location is not provided.
 
         validate_default keeps this running when the field is omitted, matching

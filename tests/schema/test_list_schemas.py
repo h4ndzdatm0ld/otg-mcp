@@ -35,8 +35,6 @@ def mock_schema():
     }
 
 
-
-
 @pytest.fixture
 def client():
     """Create a client instance for testing with a mock schema registry."""
@@ -52,9 +50,7 @@ def serve(client, schema):
 
 
 @pytest.mark.asyncio
-async def test_list_schemas_for_target_returns_only_schemas(
-    client, mock_schema
-):
+async def test_list_schemas_for_target_returns_only_schemas(client, mock_schema):
     """Test that list_schemas_for_target returns only the schemas from components.schemas."""
     # Setup mocks with AsyncMock
     client._get_target_config = AsyncMock(return_value={"apiVersion": "1.30.0"})
