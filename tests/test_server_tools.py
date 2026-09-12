@@ -81,6 +81,21 @@ DELEGATIONS = [
         },
     ),
     (
+        "tool_get_protocol_metrics",
+        {
+            "target": "gen.example.com:8443",
+            "protocol": "bgpv4",
+            "names": ["edge-bgp"],
+        },
+        "get_protocol_metrics",
+        (),
+        {
+            "target": "gen.example.com:8443",
+            "protocol": "bgpv4",
+            "names": ["edge-bgp"],
+        },
+    ),
+    (
         "tool_start_traffic",
         {"target": "gen.example.com:8443"},
         "start_traffic",

@@ -114,6 +114,42 @@ class OtgMcpServer:
             logger.debug(f"Registering {tool_name} via legacy callable signature")
             add_tool(method, name=tool_name)
 
+    async def tool_get_protocol_metrics(
+        self,
+        target: Annotated[str, Field(description="Target traffic generator")],
+        protocol: Annotated[
+            Literal[
+                "bgpv4",
+                "bgpv6",
+                "bmp_server",
+                "dhcpv4_client",
+                "dhcpv4_server",
+                "dhcpv6_client",
+                "dhcpv6_server",
+                "isis",
+                "lacp",
+                "lag",
+                "lldp",
+                "macsec",
+                "mka",
+                "ospfv2",
+                "ospfv3",
+                "rsvp",
+            ],
+            Field(description="Protocol metrics type to retrieve"),
+        ],
+        names: Annotated[
+            Optional[List[str]],
+            Field(description="Optional peer, router, server, client, or instance names"),
+        ] = None,
+    ) -> MetricsResponse:
+        """Read metrics for one protocol type, optionally filtered by names."""
+        return await self.client.get_protocol_metrics(
+            target=target,
+            protocol=protocol,
+            names=names,
+        )
+
     async def tool_set_config(
         self,
         config: Annotated[

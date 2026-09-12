@@ -7,6 +7,7 @@ from otg_mcp.models import HealthStatus, TargetHealthInfo
 from otg_mcp.server import FastMCP, OtgMcpServer
 
 EXPECTED_TOOLS = {
+    "get_protocol_metrics",
     "get_available_targets",
     "get_capture",
     "get_config",

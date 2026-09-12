@@ -22,6 +22,7 @@ EXPECTED_TOOLS = {
     "get_capture",
     "get_config",
     "get_metrics",
+    "get_protocol_metrics",
     "get_schemas_for_target",
     "health",
     "list_schemas_for_target",
