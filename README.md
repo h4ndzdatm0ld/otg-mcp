@@ -17,8 +17,8 @@ The OTG MCP Server is a Python-based Model Context Protocol (MCP) to provide acc
 
 ## Documentation
 
-Comprehensive documentation is available in the `docs/` directory:
-
+- [Next-Gen Network Testing with Open Traffic Generator MCP Server](https://medium.com/@hugotinoco/next-gen-network-testing-with-open-traffic-generator-mcp-server-061e0685d7d9):
+  an introduction to what this server is for and how it fits into a testing workflow
 - [Deploying a traffic generator](./ansible/README.md): Ansible roles that build an OTG generator, including DPDK
 - [GitHub Flow](./docs/github-flow.md): Guidelines for GitHub workflow
 
