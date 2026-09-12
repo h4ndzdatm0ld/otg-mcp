@@ -55,6 +55,24 @@ itself, so a merge whose tests failed cannot be tagged and published. It also
 refreshes `uv.lock` inside the release PR, since that file records the project's
 own version while release-please rewrites only `pyproject.toml`.
 
+### Why the line starts at 1.0.1
+
+PyPI already held a manually published `1.0` from 2025-05-20 with no
+corresponding git tag, so it outranked everything the pipeline produced: `0.1.4`
+shipped correctly but PyPI still served `1.0` as the latest, and a plain
+`pip install otg-mcp` resolved to it. The version line was moved to `1.0.1` with a
+`Release-As: 1.0.1` commit footer so that every automated release from here is
+newer than anything already on PyPI.
+
+If you ever need to pin an exact version out of band, that same footer is the
+supported mechanism:
+
+```
+chore: cut a specific version
+
+Release-As: 1.2.3
+```
+
 ### Versions are plain semver now
 
 Earlier releases used PEP 440 pre-release strings (`0.1.3a0`, tagged `v0.1.3a`).
