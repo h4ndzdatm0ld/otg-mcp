@@ -1171,7 +1171,7 @@ wheels = [
 
 [[package]]
 name = "otg-mcp"
-version = "1.0.2"
+version = "1.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
