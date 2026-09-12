@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/h4ndzdatm0ld/otg-mcp/compare/v1.1.0...v1.2.0) (2026-09-12)
+
+
+### Features
+
+* reach 100% test coverage and fix the defects it exposed ([#61](https://github.com/h4ndzdatm0ld/otg-mcp/issues/61)) ([d2c4ab9](https://github.com/h4ndzdatm0ld/otg-mcp/commit/d2c4ab9fa3c602c26331f00510dded4a9a0eb873))
+
 ## [1.1.0](https://github.com/h4ndzdatm0ld/otg-mcp/compare/v1.0.2...v1.1.0) (2026-09-12)
 
 
