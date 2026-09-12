@@ -16,8 +16,14 @@ The version that ships is decided like this:
   major bump, or a deliberate pre-release like `0.3.0a0`, which is marked as a
   GitHub pre-release and does not move the `latest` Docker tag).
 - **The merge did not bump it** - the workflow bumps the patch level itself,
-  commits `Release vX.Y.Z` to main, and releases that. A pre-release suffix is
-  dropped by an automated bump, so alphas are only ever released deliberately.
+  commits `Release vX.Y.Z` to main, and releases that. It stays on the current
+  track: `0.1.4a0` becomes `0.1.5a0`, never `0.1.5`. Leaving the alpha track is
+  deliberate, so bump `pyproject.toml` in the PR to do it.
+
+Note that the historical tags (`v0.1.3a`) do not exactly match their version
+strings (`0.1.3a0`). Tags created from here on are always `v` plus the exact
+version string, so they cannot collide with, or silently re-release, an older
+tag.
 
 ### Which workflow publishes what
 

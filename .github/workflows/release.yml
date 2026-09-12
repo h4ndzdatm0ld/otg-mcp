@@ -52,11 +52,15 @@ jobs:
             exit 0
           else
             # The merge did not bump the version: bump the patch level here so
-            # every merge still ships. A pre-release suffix is dropped, since an
-            # automated bump of an alpha would silently re-release alphas forever.
-            version=$(python3 -c 'import re, sys; m = re.match(r"^(\d+)\.(\d+)\.(\d+)", sys.argv[1]); a, b, c = map(int, m.groups()); print(f"{a}.{b}.{c + 1}")' "$current")
+            # every merge still ships. The bump stays on the current release
+            # track - an alpha becomes the next alpha, never a stable release -
+            # because promoting off a pre-release declares the project stable and
+            # moves the latest Docker tag. That is a deliberate act: bump
+            # pyproject.toml in the PR instead. Logic and its self-test live in
+            # .github/scripts/next_version.py.
+            version=$(python3 .github/scripts/next_version.py "$current")
             echo "v${current} already exists; bumping to ${version}"
-            python3 -c 'import re, sys; p = "pyproject.toml"; t = open(p).read(); t = re.sub(r"^version = \".*\"$", f"version = \"{sys.argv[1]}\"", t, count=1, flags=re.M); open(p, "w").write(t)' "$version"
+            python3 .github/scripts/set_version.py "$version"
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add pyproject.toml
@@ -76,10 +80,11 @@ jobs:
         run: |
           set -euo pipefail
           version="${{ steps.version.outputs.version }}"
+          # Match the suffix, not any occurrence of the letters.
           prerelease_flag=""
-          case "$version" in
-            *a*|*b*|*rc*) prerelease_flag="--prerelease" ;;
-          esac
+          if printf '%s' "$version" | grep -qE '(a|b|rc)[0-9]+$'; then
+            prerelease_flag="--prerelease"
+          fi
           gh release create "v${version}" \
             --title "v${version}" \
             --generate-notes \
@@ -128,6 +133,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}},value=v${{ needs.cut.outputs.version }}
             type=semver,pattern={{major}}.{{minor}},value=v${{ needs.cut.outputs.version }}
+            # latest only follows stable releases, never a pre-release.
             type=raw,value=latest,enable=${{ !contains(needs.cut.outputs.version, 'a') && !contains(needs.cut.outputs.version, 'b') && !contains(needs.cut.outputs.version, 'rc') }}
 
       - name: Login to GitHub Container Registry
