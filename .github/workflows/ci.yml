@@ -17,7 +17,7 @@ jobs:
     permissions:
       pull-requests: read
     steps:
-      - uses: amannn/action-semantic-pull-request@v5
+      - uses: amannn/action-semantic-pull-request@v6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -44,7 +44,7 @@ jobs:
     name: "Ansible - Lint"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install ansible-lint
         run: pipx install ansible-lint && pipx inject ansible-lint ansible-core
@@ -60,10 +60,10 @@ jobs:
     name: "Code Quality - Linting"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
 
       - name: Install Python
         run: uv python install 3.11
@@ -88,16 +88,16 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         python-version: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
 
       - name: Install Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
 
       - name: Cache dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         with:
           path: ~/.cache/uv
           key: ${{ runner.os }}-uv-${{ hashFiles('**/pyproject.toml') }}
@@ -114,7 +114,7 @@ jobs:
         run: uv run pytest tests/ --cov --cov-branch --cov-report=xml
 
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
