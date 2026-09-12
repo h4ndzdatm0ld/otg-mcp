@@ -11,12 +11,12 @@ authors = [
   {name = "OTG MCP Contributors"}
 ]
 dependencies = [
-  # Only fastmcp is needed: nothing here imports mcp directly, and every fastmcp
-  # 2.x release already requires mcp<2.0 itself. fastmcp 4.x is excluded because
-  # it imports mcp.server.mcpserver, which the resolved mcp does not provide, so
-  # test collection dies with ModuleNotFoundError. Moving to fastmcp 4 is a
-  # deliberate upgrade that needs its own validation.
-  "fastmcp>=2.2.5,<3",
+  # Only fastmcp is needed: nothing here imports mcp directly, and fastmcp pins a
+  # compatible mcp itself. 4.x is excluded because it imports
+  # mcp.server.mcpserver, which the resolved mcp does not provide, so test
+  # collection dies with ModuleNotFoundError. Moving to fastmcp 4 is a deliberate
+  # upgrade that needs its own validation.
+  "fastmcp>=2.2.5,<4",
   "pydantic>=2.0.0",
   "pydantic-settings>=2.0.0",
   "httpx>=0.24.1",

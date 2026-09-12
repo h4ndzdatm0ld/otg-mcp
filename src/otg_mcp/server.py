@@ -53,7 +53,11 @@ class OtgMcpServer:
             config.setup_logging()
 
             logger.info("Creating the FastMCP instance")
-            self.mcp: FastMCP = FastMCP("otg-mcp-server", log_level="INFO")
+            logger.info("Log level comes from config.setup_logging above, not from")
+            logger.info("FastMCP: 3.x removed the log_level constructor argument and")
+            logger.info("raises TypeError on it, and configuring Python logging is what")
+            logger.info("actually governs this server's output either way")
+            self.mcp: FastMCP = FastMCP("otg-mcp-server")
 
             logger.info("Initializing OTG client")
             self.client = OtgClient(config=config)

@@ -132,9 +132,16 @@ Refresh with `uv lock --upgrade` (or `hatch run update`, which now calls it).
 Dependabot watches the `uv` ecosystem plus `github-actions`, grouped so review is
 one pass.
 
-`mcp` is deliberately not declared. Nothing in `src/` imports it, and `fastmcp<3`
-already constrains it to `<2` - which is why a dependabot PR proposing mcp 2.x is
-unresolvable rather than merely risky. `ansible/requirements.txt` is unrelated: it
+`mcp` is deliberately not declared. Nothing in `src/` imports it and fastmcp pins a
+compatible version itself, which is why a dependabot PR proposing mcp 2.x is
+unresolvable rather than merely risky: the resolver keeps it at 1.30.0.
+
+fastmcp is pinned `<4`. Two things break on a major bump, so check both when the
+ceiling moves again: 3.x removed the `log_level` constructor argument (it raises
+`TypeError`, and Python logging configured in `config.setup_logging` is what
+actually governs output), and it renamed `FastMCP.get_tools()` to `list_tools()`,
+returning Tool objects instead of a name-keyed mapping. 4.x is excluded because it
+imports `mcp.server.mcpserver`, which the resolved mcp does not provide. `ansible/requirements.txt` is unrelated: it
 pins the Ansible control-node tooling, which is deliberately isolated from this
 package.
 
