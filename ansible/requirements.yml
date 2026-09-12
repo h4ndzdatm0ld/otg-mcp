@@ -3,11 +3,11 @@
 # change in this repo.
 collections:
   - name: community.general
-    version: "11.4.0"
+    version: "13.4.0"
   - name: community.docker
-    version: "4.9.0"
+    version: "5.3.0"
   - name: ansible.posix
-    version: "3.0.0"
+    version: "2.2.2"
 
 roles:
   # The standard Docker installation role. Used only on releases Docker's apt

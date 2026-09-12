@@ -2,6 +2,63 @@
 
 This document outlines the process for releasing new versions of the OTG-MCP package.
 
+## Releases are automatic
+
+Versioning is handled by [release-please](https://github.com/googleapis/release-please),
+driven by [Conventional Commits](https://www.conventionalcommits.org/). Nobody
+edits the version by hand and nobody picks a number.
+
+1. Merge a `feat:` or `fix:` commit to `main`.
+2. release-please opens (or updates) a **release PR** that bumps
+   `pyproject.toml` and writes `CHANGELOG.md`.
+3. Merging that release PR creates the tag and the GitHub Release.
+4. `.github/workflows/release.yml` then publishes to PyPI and pushes
+   `X.Y.Z`, `X.Y` and `latest` images, in the same workflow run.
+
+How the version is decided:
+
+| Commit | Bump |
+|---|---|
+| `fix: ...` | patch (0.1.3 -> 0.1.4) |
+| `feat: ...` | minor (0.1.3 -> 0.2.0) |
+| `feat!: ...` or a `BREAKING CHANGE:` footer | minor while below 1.0.0, major after |
+| `docs:`, `ci:`, `chore:`, `test:`, `refactor:`, `perf:`, `deps:` | none |
+
+The prefix must be on the commit that lands on `main`. With squash merges that is
+the **PR title**, so a PR titled without a prefix ships nothing no matter what
+its individual commits said.
+
+A commit that is not conventional produces no release. That is deliberate: not
+every merge deserves a version. Use `workflow_dispatch` on the Release workflow
+to cut one from history that predates this convention.
+
+### Which workflow publishes what
+
+| Workflow | Trigger | Publishes |
+|---|---|---|
+| `docker.yml` | branch pushes, PRs | Verification, plus moving dev images `main` and `sha-<short>` |
+| `release.yml` | push to `main`, manual | The release PR, then tag + GitHub Release + PyPI + `X.Y.Z` / `X.Y` / `latest` images |
+| `ci.yml` | pushes, PRs | Lint, tests and a build check. It no longer publishes: a second PyPI publisher is a double-publish hazard, not a fallback |
+
+Each artifact has exactly one owner. `docker.yml` deliberately does not react to
+tags or releases: an unfiltered `push:` trigger fires on tags too, which would
+publish the same semver images `release.yml` already pushed.
+
+`release.yml` runs on `workflow_run` after "Python CI" succeeds, not on the push
+itself, so a merge whose tests failed cannot be tagged and published. It also
+refreshes `uv.lock` inside the release PR, since that file records the project's
+own version while release-please rewrites only `pyproject.toml`.
+
+### Versions are plain semver now
+
+Earlier releases used PEP 440 pre-release strings (`0.1.3a0`, tagged `v0.1.3a`).
+release-please works in semver, so versions from here are plain `X.Y.Z`. State is
+tracked in `.release-please-manifest.json`, seeded at the last released version
+(`0.1.3`), and `release-please-config.json` holds the changelog sections.
+
+The reference below is kept for how versions are chosen and for manual releases
+(publishing a GitHub Release by hand still ships to PyPI via `ci.yml`).
+
 ## Version Management
 
 ### Current Versioning Strategy
