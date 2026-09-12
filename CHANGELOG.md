@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/h4ndzdatm0ld/otg-mcp/compare/v1.0.2...v1.1.0) (2026-09-12)
+
+
+### Features
+
+* support fastmcp 3.x and raise the ceiling to &lt;4 ([#59](https://github.com/h4ndzdatm0ld/otg-mcp/issues/59)) ([547f171](https://github.com/h4ndzdatm0ld/otg-mcp/commit/547f1710a917fe40c3203a67dca70eb8665fb7de))
+
 ## [1.0.2](https://github.com/h4ndzdatm0ld/otg-mcp/compare/v1.0.1...v1.0.2) (2026-09-12)
 
 
