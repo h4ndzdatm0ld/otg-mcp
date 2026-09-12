@@ -64,12 +64,23 @@ class TestToolRegistration:
 
     @pytest.mark.asyncio
     async def test_tools_are_visible_to_mcp(self, server_config_file):
-        """FastMCP exposes the registered tools, proving add_tool actually took."""
+        """FastMCP exposes the registered tools, proving add_tool actually took.
+
+        The listing API differs by fastmcp major version: 2.x exposes
+        ``get_tools()`` returning a name-keyed mapping, 3.x renamed it to
+        ``list_tools()`` returning Tool objects. Both are accepted so this test
+        pins the behaviour that matters - every tool is really registered - rather
+        than one library's spelling of it.
+        """
         server = OtgMcpServer(config_file=server_config_file)
 
-        tools = await server.mcp.get_tools()
+        if hasattr(server.mcp, "list_tools"):
+            tools = await server.mcp.list_tools()
+        else:
+            tools = await server.mcp.get_tools()
 
-        assert set(tools) == EXPECTED_TOOLS
+        names = {t.name if hasattr(t, "name") else t for t in tools}
+        assert names == EXPECTED_TOOLS
 
 
 class TestOtgMcpServer:
