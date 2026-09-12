@@ -135,7 +135,12 @@ them and nobody edits the version by hand.
 A commit with no recognised prefix produces **no release at all**. That is
 deliberate - not every merge deserves a version - but it also means a genuine
 feature written as plain prose ships nothing. The prefix has to be on the commit
-that lands on main, which for a squashed PR is the **PR title**.
+that lands on main, which for a squashed PR is the **PR title**; CI validates it
+so the mistake surfaces before merging.
+
+Do not confuse these with the `feat/` and `fix/` **branch** prefixes this repo
+also uses. Branch names are a convention nothing parses; the colon form in the
+commit subject is what release-please reads. Both are in use and do not conflict.
 
 The flow: merge a `feat:`/`fix:` to main, and once CI is green release-please
 opens a release PR bumping `pyproject.toml` and writing `CHANGELOG.md`. Merging

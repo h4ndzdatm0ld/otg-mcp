@@ -26,7 +26,13 @@ How the version is decided:
 
 The prefix must be on the commit that lands on `main`. With squash merges that is
 the **PR title**, so a PR titled without a prefix ships nothing no matter what
-its individual commits said.
+its individual commits said. CI checks the PR title for this, so the mistake
+surfaces before the merge rather than after.
+
+Note that these colons are not the `feat/` and `fix/` **branch** prefixes this
+repo also uses. Branch names are a human convention that nothing parses; the
+colon form in the commit subject is what decides the version. Both are in use and
+they do not conflict.
 
 A commit that is not conventional produces no release. That is deliberate: not
 every merge deserves a version. Use `workflow_dispatch` on the Release workflow
