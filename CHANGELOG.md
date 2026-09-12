@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/h4ndzdatm0ld/otg-mcp/compare/v1.2.0...v1.3.0) (2026-09-12)
+
+
+### Features
+
+* add protocol metrics and enforce protocol auto-start ([#63](https://github.com/h4ndzdatm0ld/otg-mcp/issues/63)) ([c704d2e](https://github.com/h4ndzdatm0ld/otg-mcp/commit/c704d2ea10f48ae667c64e973c7ba4724e5abda2))
+
 ## [1.2.0](https://github.com/h4ndzdatm0ld/otg-mcp/compare/v1.1.0...v1.2.0) (2026-09-12)
 
 
