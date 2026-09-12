@@ -49,8 +49,10 @@ all = [
 [tool.hatch.envs.default]
 # This controls what version of Python you want to be the default
 # when running any scripts or tools to do things like debug test failures
-# or do general development.  It's lockfile is ./requirements.txt
-type = "pip-compile"
+# or do general development. Dependencies come from pyproject.toml, resolved by
+# uv into uv.lock. There is deliberately no second lockfile: the previous
+# pip-compile setup generated requirements.txt, which only the Docker image
+# consumed, and it drifted from uv.lock without anyone noticing.
 python = "3.12"
 features = ["dev"]
 dependencies = []
@@ -114,9 +116,6 @@ exclude = [ "./build", ".hatch", "private" ]
 [tool.hatch.build]
 directory = "./build"
 
-[tool.hatch.env]
-requires = [ "hatch-pip-compile" ]
-
 [tool.hatch.envs.default.scripts]
 # These are scripts you can run using `hatch run <script-name>`
 typing = [
@@ -124,8 +123,8 @@ typing = [
   # "mypy --install-types --non-interactive src/otg_mcp tests"
 ]
 
-# This command is for updating all your lock files across all environments 
-update = [ "hatch-pip-compile --upgrade --all" ]
+# Refresh the lockfile. uv owns dependency resolution.
+update = [ "uv lock --upgrade" ]
 
 release = [
     "typing",
@@ -135,7 +134,6 @@ release = [
 [[tool.hatch.envs.hatch-test.matrix]]
 # This defines multiple variables you can generate combinations
 # to test underneath different environments.  A separate environment and 
-# lock file will be created for every combination located in `./requirements/`
 python = ["3.11", "3.12"]
 
 [tool.hatch.metadata]
@@ -147,22 +145,6 @@ packages = ["src/otg_mcp"]
 [tool.hatch.envs.hatch-test.scripts]
 test = "pytest {args}"
 cov-report = "coverage report"
-
-## This environment is used solely to generate a lock file on hatch,
-# and hatch-pip-compile that can be automatically updated
-[tool.hatch.envs.build-tools]
-# This version states what version your build tools build with.  To change it,
-# you will need to:
-# * Remove the `requirements/requirements-build-tools.txt` file
-# * Run `hatch-pip-compile --upgrade --all` to generate a new lock file for the environment
-python = "3.12"
-detached = true
-skip-install = true
-features = ["dev"]
-dependencies = [
-  "hatch-pip-compile",
-]
-
 
 [[tool.uv.index]]
 name = "pypi"

@@ -44,11 +44,12 @@ async def test_health_all_healthy(client):
     # Mock the get_available_targets method to avoid it making internal get_target_version calls
     mock_targets = {"target1": {}, "target2": {}}
 
-    with patch.object(
-        client, "get_available_targets", return_value=mock_targets
-    ), patch.object(
-        client, "get_target_version", return_value=mock_version_info
-    ) as mock_get_version:
+    with (
+        patch.object(client, "get_available_targets", return_value=mock_targets),
+        patch.object(
+            client, "get_target_version", return_value=mock_version_info
+        ) as mock_get_version,
+    ):
         # Act
         result = await client.health()
 
@@ -111,9 +112,7 @@ async def test_health_single_target_healthy(client):
         api_spec_version="1.*", sdk_version="1.28.2", app_version="1.28.0"
     )
 
-    with patch.object(
-        client, "get_target_version", return_value=mock_version_info
-    ):
+    with patch.object(client, "get_target_version", return_value=mock_version_info):
         # Act
         result = await client.health("target1")
 

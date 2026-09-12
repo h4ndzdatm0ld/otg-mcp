@@ -12,8 +12,6 @@ from otg_mcp.client import OtgClient
 from otg_mcp.config import Config, TargetConfig
 
 
-
-
 @pytest.fixture
 def remote_spec():
     """An OpenAPI document of the shape a target serves at /docs/openapi.json."""
@@ -123,7 +121,6 @@ async def test_schema_not_found_handling(client):
     """Test handling of non-existent schemas."""
     # Setup mocks with AsyncMock
     client._get_target_config = AsyncMock(return_value={"apiVersion": "1.30.0"})
-
 
     # Call the method with a non-existent schema
     result = await client.get_schemas_for_target("test-target", ["NonExistentSchema"])

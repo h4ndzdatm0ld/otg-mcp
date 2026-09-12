@@ -38,6 +38,7 @@ def mock_api():
 def client():
     """Create a client instance for testing."""
     from otg_mcp.config import Config
+
     mock_config = Config()
     return OtgClient(config=mock_config)
 

@@ -10,12 +10,13 @@ import pytest
 
 import logging
 
-
 logger = logging.getLogger(__name__)
 # Configure logging to ensure output is visible
-logging.basicConfig(level=logging.INFO,
-                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                   stream=sys.stdout)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stdout,
+)
 
 
 def test_no_inline_comments():
@@ -26,9 +27,12 @@ def test_no_inline_comments():
     target_extension = ".py"
 
     # Force the logger to print to stdout
-    logging.basicConfig(level=logging.DEBUG, force=True,
-                      format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                      stream=sys.stdout)
+    logging.basicConfig(
+        level=logging.DEBUG,
+        force=True,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        stream=sys.stdout,
+    )
     logger.setLevel(logging.DEBUG)
     print("TEST STARTING - CHECKING FOR COMMENTS")
     problematic_modules = {}
@@ -93,7 +97,10 @@ def test_no_inline_comments():
                         if "#" in stripped_line:
                             print(f"Line {i+1}: {stripped_line}")
                             # Skip allowlisted patterns
-                            if any(pattern in stripped_line for pattern in allowlist_patterns):
+                            if any(
+                                pattern in stripped_line
+                                for pattern in allowlist_patterns
+                            ):
                                 continue
 
                             # Skip comments at file beginning (first 5 lines)
@@ -101,7 +108,9 @@ def test_no_inline_comments():
                                 continue
 
                             # Add to problematic lines
-                            logger.info("Found comment at line %d: %s", i + 1, stripped_line)
+                            logger.info(
+                                "Found comment at line %d: %s", i + 1, stripped_line
+                            )
                             comment_lines.append((i + 1, stripped_line))
 
                     if comment_lines:
