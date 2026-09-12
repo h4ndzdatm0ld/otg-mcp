@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/h4ndzdatm0ld/otg-mcp/compare/v1.0.1...v1.0.2) (2026-09-12)
+
+
+### Dependencies
+
+* consolidate on uv and refresh every dependency ([#56](https://github.com/h4ndzdatm0ld/otg-mcp/issues/56)) ([e7cf077](https://github.com/h4ndzdatm0ld/otg-mcp/commit/e7cf07737a50e505f47ccee6b98b77ade0a1a3bc))
+
 ## [1.0.1](https://github.com/h4ndzdatm0ld/otg-mcp/compare/v0.1.4...v1.0.1) (2026-09-12)
 
 
