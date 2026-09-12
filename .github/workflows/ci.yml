@@ -9,6 +9,22 @@ on:
     types: [published]
 
 jobs:
+  ansible-lint:
+    name: "Ansible - Lint"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ansible-lint
+        run: pipx install ansible-lint && pipx inject ansible-lint ansible-core
+
+      - name: Install collections
+        run: ansible-galaxy collection install -r ansible/requirements.yml
+
+      - name: Lint the deployment roles
+        working-directory: ansible
+        run: ansible-lint --offline
+
   linters:
     name: "Code Quality - Linting"
     runs-on: ubuntu-latest

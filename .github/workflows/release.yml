@@ -1,0 +1,164 @@
+name: Release
+
+# Every merge to main produces a full release: a git tag, a GitHub Release, the
+# package on PyPI, and semver-tagged Docker images - the same artifacts a manual
+# release produced, without the manual steps.
+#
+# This workflow publishes everything itself instead of relying on the
+# `release: published` triggers in ci.yml and docker.yml. A release created with
+# the workflow's own GITHUB_TOKEN does not trigger other workflows (GitHub's
+# anti-recursion rule), so those triggers would never fire from here. They are
+# kept so a manually published release still works.
+
+on:
+  push:
+    branches: [main]
+
+# Two merges landing close together must not race the tag computation.
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  cut:
+    name: Tag and create the release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      released: ${{ steps.version.outputs.released }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine the version to release
+        id: version
+        run: |
+          set -euo pipefail
+          current=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "pyproject version: ${current}"
+
+          if ! git rev-parse -q --verify "refs/tags/v${current}" >/dev/null; then
+            # The merge bumped the version (or it was never released): release it as-is.
+            version="${current}"
+            echo "v${version} is untagged; releasing it"
+          elif [ "$(git rev-parse "v${current}^{commit}")" = "$(git rev-parse HEAD)" ]; then
+            # Re-run on an already-released commit: nothing to do.
+            echo "HEAD is already released as v${current}"
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          else
+            # The merge did not bump the version: bump the patch level here so
+            # every merge still ships. A pre-release suffix is dropped, since an
+            # automated bump of an alpha would silently re-release alphas forever.
+            version=$(python3 -c 'import re, sys; m = re.match(r"^(\d+)\.(\d+)\.(\d+)", sys.argv[1]); a, b, c = map(int, m.groups()); print(f"{a}.{b}.{c + 1}")' "$current")
+            echo "v${current} already exists; bumping to ${version}"
+            python3 -c 'import re, sys; p = "pyproject.toml"; t = open(p).read(); t = re.sub(r"^version = \".*\"$", f"version = \"{sys.argv[1]}\"", t, count=1, flags=re.M); open(p, "w").write(t)' "$version"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add pyproject.toml
+            git commit -m "Release v${version}"
+            git push origin main
+          fi
+
+          git tag "v${version}"
+          git push origin "v${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "released=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create the GitHub Release
+        if: steps.version.outputs.released == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          prerelease_flag=""
+          case "$version" in
+            *a*|*b*|*rc*) prerelease_flag="--prerelease" ;;
+          esac
+          gh release create "v${version}" \
+            --title "v${version}" \
+            --generate-notes \
+            ${prerelease_flag}
+
+  pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: cut
+    if: needs.cut.outputs.released == 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.cut.outputs.version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Build
+        run: uv build
+
+      - name: Publish
+        run: uv publish -t ${{ secrets.PYPI_API_TOKEN }}
+
+  docker:
+    name: Publish Docker image
+    runs-on: ubuntu-latest
+    needs: cut
+    if: needs.cut.outputs.released == 'true'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.cut.outputs.version }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/otg-mcp
+          tags: |
+            type=semver,pattern={{version}},value=v${{ needs.cut.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.cut.outputs.version }}
+            type=raw,value=latest,enable=${{ !contains(needs.cut.outputs.version, 'a') && !contains(needs.cut.outputs.version, 'b') && !contains(needs.cut.outputs.version, 'rc') }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Same guard as docker.yml: an image that builds can still ship a server
+      # that registers no tools, so verify the MCP tool surface before pushing.
+      - name: Build image locally for verification
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: otg-mcp:release-check
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify MCP server exposes all expected tools
+        run: |
+          docker run --rm otg-mcp:release-check \
+            python tests/docker/assert_tools.py -- \
+            python -m otg_mcp --config-file examples/trafficGeneratorConfig.json
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha

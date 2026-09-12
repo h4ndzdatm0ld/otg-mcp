@@ -2,6 +2,27 @@
 
 This document outlines the process for releasing new versions of the OTG-MCP package.
 
+## Releases are automatic
+
+Every merge to `main` produces a full release: `.github/workflows/release.yml`
+tags the merge, creates a GitHub Release with generated notes, publishes the
+package to PyPI, and pushes semver-tagged Docker images to ghcr.io
+(`X.Y.Z`, `X.Y`, and `latest` for stable versions).
+
+The version that ships is decided like this:
+
+- **The merge bumped `version` in `pyproject.toml`** - that exact version is
+  released. Bump it in your PR when you want to control the number (a minor or
+  major bump, or a deliberate pre-release like `0.3.0a0`, which is marked as a
+  GitHub pre-release and does not move the `latest` Docker tag).
+- **The merge did not bump it** - the workflow bumps the patch level itself,
+  commits `Release vX.Y.Z` to main, and releases that. A pre-release suffix is
+  dropped by an automated bump, so alphas are only ever released deliberately.
+
+Nothing below needs to be done by hand anymore; it is kept as reference for how
+versions are chosen and for manual releases (a manually published GitHub
+Release still triggers the publish paths in ci.yml and docker.yml).
+
 ## Version Management
 
 ### Current Versioning Strategy

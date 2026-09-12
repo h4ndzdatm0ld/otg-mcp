@@ -121,4 +121,10 @@ Traffic control is written as feature-detection fallback chains rather than vers
 
 ## Release
 
-Version lives only in `pyproject.toml`. Tag `v<version>` and publish a GitHub Release; CI builds and pushes to PyPI. Details and semver/pre-release conventions in `RELEASE.md`.
+Version lives only in `pyproject.toml`, and releases are automatic: every merge
+to main tags, creates a GitHub Release, publishes to PyPI and pushes semver
+Docker images (`.github/workflows/release.yml`). Bump the version in the PR to
+control the number; otherwise the workflow bumps the patch level itself. It
+publishes everything in-workflow because a release created with GITHUB_TOKEN
+cannot trigger the `release:` events in ci.yml/docker.yml. Conventions in
+`RELEASE.md`.
