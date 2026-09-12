@@ -121,10 +121,11 @@ Traffic control is written as feature-detection fallback chains rather than vers
 
 ## Release
 
-Version lives only in `pyproject.toml`, and releases are automatic: every merge
-to main tags, creates a GitHub Release, publishes to PyPI and pushes semver
-Docker images (`.github/workflows/release.yml`). Bump the version in the PR to
-control the number; otherwise the workflow bumps the patch level itself. It
-publishes everything in-workflow because a release created with GITHUB_TOKEN
-cannot trigger the `release:` events in ci.yml/docker.yml. Conventions in
-`RELEASE.md`.
+Releases are automatic and version numbers are not chosen by hand:
+release-please derives them from Conventional Commits, opens a release PR that
+bumps `pyproject.toml` and writes `CHANGELOG.md`, and merging that PR triggers
+the tag, GitHub Release, PyPI publish and semver Docker images
+(`.github/workflows/release.yml`). `fix:` is a patch, `feat:` a minor, and a
+non-conventional commit produces no release at all. Versions are plain semver;
+the pre-1.0 PEP 440 style (`0.1.3a0`, tagged `v0.1.3a`) is history. State lives in
+`.release-please-manifest.json`. Conventions in `RELEASE.md`.

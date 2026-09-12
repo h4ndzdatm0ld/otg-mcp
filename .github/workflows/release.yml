@@ -1,104 +1,66 @@
 name: Release
 
-# Every merge to main produces a full release: a git tag, a GitHub Release, the
-# package on PyPI, and semver-tagged Docker images - the same artifacts a manual
-# release produced, without the manual steps.
+# Versioning is derived from Conventional Commits by release-please, so nobody
+# edits pyproject.toml by hand and nobody guesses a number.
 #
-# This workflow publishes everything itself instead of relying on the
-# `release: published` triggers in ci.yml and docker.yml. A release created with
-# the workflow's own GITHUB_TOKEN does not trigger other workflows (GitHub's
-# anti-recursion rule), so those triggers would never fire from here. They are
-# kept so a manually published release still works.
+# How it flows:
+#   1. A merge to main lands a `feat:` / `fix:` commit.
+#   2. release-please opens (or updates) a release PR that bumps
+#      pyproject.toml and writes CHANGELOG.md.
+#   3. Merging that PR creates the tag and the GitHub Release.
+#   4. The publish jobs below run in that same workflow run and ship the PyPI
+#      and Docker artifacts.
+#
+# Publishing lives here rather than relying on the `release: published` triggers
+# in ci.yml and docker.yml, because a release created by this workflow's
+# GITHUB_TOKEN does not trigger other workflows. Those triggers are kept so a
+# manually published release still ships.
+#
+# fix: -> patch, feat: -> minor, `!` or a BREAKING CHANGE footer -> major (while
+# below 1.0.0 a breaking change bumps the minor, per bump-minor-pre-major). A
+# commit that is not conventional produces no release, which is intended: not
+# every merge deserves a version.
 
 on:
   push:
     branches: [main]
+  # Lets you cut a release from history that predates Conventional Commits,
+  # without inventing a commit to trigger it.
+  workflow_dispatch:
 
-# Two merges landing close together must not race the tag computation.
+# Never let two merges race the release PR or the tag.
 concurrency:
   group: release-main
   cancel-in-progress: false
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
-  cut:
-    name: Tag and create the release
+  release-please:
+    name: Prepare release
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.version }}
-      released: ${{ steps.version.outputs.released }}
+      released: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - id: release
+        uses: googleapis/release-please-action@v4
         with:
-          fetch-depth: 0
-
-      - name: Determine the version to release
-        id: version
-        run: |
-          set -euo pipefail
-          current=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
-          echo "pyproject version: ${current}"
-
-          if ! git rev-parse -q --verify "refs/tags/v${current}" >/dev/null; then
-            # The merge bumped the version (or it was never released): release it as-is.
-            version="${current}"
-            echo "v${version} is untagged; releasing it"
-          elif [ "$(git rev-parse "v${current}^{commit}")" = "$(git rev-parse HEAD)" ]; then
-            # Re-run on an already-released commit: nothing to do.
-            echo "HEAD is already released as v${current}"
-            echo "released=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          else
-            # The merge did not bump the version: bump the patch level here so
-            # every merge still ships. The bump stays on the current release
-            # track - an alpha becomes the next alpha, never a stable release -
-            # because promoting off a pre-release declares the project stable and
-            # moves the latest Docker tag. That is a deliberate act: bump
-            # pyproject.toml in the PR instead. Logic and its self-test live in
-            # .github/scripts/next_version.py.
-            version=$(python3 .github/scripts/next_version.py "$current")
-            echo "v${current} already exists; bumping to ${version}"
-            python3 .github/scripts/set_version.py "$version"
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add pyproject.toml
-            git commit -m "Release v${version}"
-            git push origin main
-          fi
-
-          git tag "v${version}"
-          git push origin "v${version}"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "released=true" >> "$GITHUB_OUTPUT"
-
-      - name: Create the GitHub Release
-        if: steps.version.outputs.released == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          version="${{ steps.version.outputs.version }}"
-          # Match the suffix, not any occurrence of the letters.
-          prerelease_flag=""
-          if printf '%s' "$version" | grep -qE '(a|b|rc)[0-9]+$'; then
-            prerelease_flag="--prerelease"
-          fi
-          gh release create "v${version}" \
-            --title "v${version}" \
-            --generate-notes \
-            ${prerelease_flag}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
 
   pypi:
     name: Publish to PyPI
     runs-on: ubuntu-latest
-    needs: cut
-    if: needs.cut.outputs.released == 'true'
+    needs: release-please
+    if: needs.release-please.outputs.released == 'true'
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: v${{ needs.cut.outputs.version }}
+          ref: ${{ needs.release-please.outputs.tag }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
@@ -112,15 +74,15 @@ jobs:
   docker:
     name: Publish Docker image
     runs-on: ubuntu-latest
-    needs: cut
-    if: needs.cut.outputs.released == 'true'
+    needs: release-please
+    if: needs.release-please.outputs.released == 'true'
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: v${{ needs.cut.outputs.version }}
+          ref: ${{ needs.release-please.outputs.tag }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -130,11 +92,12 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository_owner }}/otg-mcp
+          # release-please produces stable semver, so latest always points at a
+          # real release. docker.yml owns the moving dev tags.
           tags: |
-            type=semver,pattern={{version}},value=v${{ needs.cut.outputs.version }}
-            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.cut.outputs.version }}
-            # latest only follows stable releases, never a pre-release.
-            type=raw,value=latest,enable=${{ !contains(needs.cut.outputs.version, 'a') && !contains(needs.cut.outputs.version, 'b') && !contains(needs.cut.outputs.version, 'rc') }}
+            type=semver,pattern={{version}},value=${{ needs.release-please.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.release-please.outputs.tag }}
+            type=raw,value=latest
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -144,7 +107,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Same guard as docker.yml: an image that builds can still ship a server
-      # that registers no tools, so verify the MCP tool surface before pushing.
+      # that registers no tools, so verify the tool surface before pushing.
       - name: Build image locally for verification
         uses: docker/build-push-action@v5
         with:

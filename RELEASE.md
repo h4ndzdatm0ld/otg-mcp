@@ -4,42 +4,51 @@ This document outlines the process for releasing new versions of the OTG-MCP pac
 
 ## Releases are automatic
 
-Every merge to `main` produces a full release: `.github/workflows/release.yml`
-tags the merge, creates a GitHub Release with generated notes, publishes the
-package to PyPI, and pushes semver-tagged Docker images to ghcr.io
-(`X.Y.Z`, `X.Y`, and `latest` for stable versions).
+Versioning is handled by [release-please](https://github.com/googleapis/release-please),
+driven by [Conventional Commits](https://www.conventionalcommits.org/). Nobody
+edits the version by hand and nobody picks a number.
 
-The version that ships is decided like this:
+1. Merge a `feat:` or `fix:` commit to `main`.
+2. release-please opens (or updates) a **release PR** that bumps
+   `pyproject.toml` and writes `CHANGELOG.md`.
+3. Merging that release PR creates the tag and the GitHub Release.
+4. `.github/workflows/release.yml` then publishes to PyPI and pushes
+   `X.Y.Z`, `X.Y` and `latest` images, in the same workflow run.
 
-- **The merge bumped `version` in `pyproject.toml`** - that exact version is
-  released. Bump it in your PR when you want to control the number (a minor or
-  major bump, or a deliberate pre-release like `0.3.0a0`, which is marked as a
-  GitHub pre-release and does not move the `latest` Docker tag).
-- **The merge did not bump it** - the workflow bumps the patch level itself,
-  commits `Release vX.Y.Z` to main, and releases that. It stays on the current
-  track: `0.1.4a0` becomes `0.1.5a0`, never `0.1.5`. Leaving the alpha track is
-  deliberate, so bump `pyproject.toml` in the PR to do it.
+How the version is decided:
 
-Note that the historical tags (`v0.1.3a`) do not exactly match their version
-strings (`0.1.3a0`). Tags created from here on are always `v` plus the exact
-version string, so they cannot collide with, or silently re-release, an older
-tag.
+| Commit | Bump |
+|---|---|
+| `fix: ...` | patch (0.1.3 -> 0.1.4) |
+| `feat: ...` | minor (0.1.3 -> 0.2.0) |
+| `feat!: ...` or a `BREAKING CHANGE:` footer | minor while below 1.0.0, major after |
+| `docs:`, `ci:`, `chore:`, `test:`, `refactor:` | none |
+
+A commit that is not conventional produces no release. That is deliberate: not
+every merge deserves a version. Use `workflow_dispatch` on the Release workflow
+to cut one from history that predates this convention.
 
 ### Which workflow publishes what
 
 | Workflow | Trigger | Publishes |
 |---|---|---|
 | `docker.yml` | branch pushes, PRs | Verification, plus moving dev images `main` and `sha-<short>` |
-| `release.yml` | push to `main` | The tag, the GitHub Release, PyPI, and `X.Y.Z` / `X.Y` / `latest` images |
+| `release.yml` | push to `main`, manual | The release PR, then tag + GitHub Release + PyPI + `X.Y.Z` / `X.Y` / `latest` images |
 | `ci.yml` | pushes, PRs, published release | Tests; PyPI only for a **manually** published release |
 
 Each artifact has exactly one owner. `docker.yml` deliberately does not react to
-tags or releases — an unfiltered `push:` trigger fires on tags too, which would
+tags or releases: an unfiltered `push:` trigger fires on tags too, which would
 publish the same semver images `release.yml` already pushed.
 
-Nothing below needs to be done by hand anymore; it is kept as reference for how
-versions are chosen, and for manual releases (publishing a GitHub Release by hand
-still ships to PyPI via `ci.yml`).
+### Versions are plain semver now
+
+Earlier releases used PEP 440 pre-release strings (`0.1.3a0`, tagged `v0.1.3a`).
+release-please works in semver, so versions from here are plain `X.Y.Z`. State is
+tracked in `.release-please-manifest.json`, seeded at the last released version
+(`0.1.3`), and `release-please-config.json` holds the changelog sections.
+
+The reference below is kept for how versions are chosen and for manual releases
+(publishing a GitHub Release by hand still ships to PyPI via `ci.yml`).
 
 ## Version Management
 
