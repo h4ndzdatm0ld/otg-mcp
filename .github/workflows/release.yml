@@ -58,7 +58,7 @@ jobs:
       pr_branch: ${{ fromJSON(steps.release.outputs.pr || '{}').headBranchName }}
     steps:
       - id: release
-        uses: googleapis/release-please-action@v4
+        uses: googleapis/release-please-action@v5
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
@@ -72,12 +72,12 @@ jobs:
     needs: release-please
     if: needs.release-please.outputs.pr_branch != ''
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.release-please.outputs.pr_branch }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
 
       - name: Refresh the lockfile
         run: uv lock
@@ -101,12 +101,12 @@ jobs:
     needs: release-please
     if: needs.release-please.outputs.released == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.release-please.outputs.tag }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
 
       - name: Build
         run: uv build
@@ -123,16 +123,16 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.release-please.outputs.tag }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository_owner }}/otg-mcp
           # release-please produces stable semver, so latest always points at a
@@ -146,7 +146,7 @@ jobs:
             type=raw,value=latest
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -155,7 +155,7 @@ jobs:
       # Same guard as docker.yml: an image that builds can still ship a server
       # that registers no tools, so verify the tool surface before pushing.
       - name: Build image locally for verification
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           load: true
@@ -170,7 +170,7 @@ jobs:
             python -m otg_mcp --config-file examples/trafficGeneratorConfig.json
 
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
