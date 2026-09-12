@@ -19,9 +19,21 @@ The version that ships is decided like this:
   commits `Release vX.Y.Z` to main, and releases that. A pre-release suffix is
   dropped by an automated bump, so alphas are only ever released deliberately.
 
+### Which workflow publishes what
+
+| Workflow | Trigger | Publishes |
+|---|---|---|
+| `docker.yml` | branch pushes, PRs | Verification, plus moving dev images `main` and `sha-<short>` |
+| `release.yml` | push to `main` | The tag, the GitHub Release, PyPI, and `X.Y.Z` / `X.Y` / `latest` images |
+| `ci.yml` | pushes, PRs, published release | Tests; PyPI only for a **manually** published release |
+
+Each artifact has exactly one owner. `docker.yml` deliberately does not react to
+tags or releases — an unfiltered `push:` trigger fires on tags too, which would
+publish the same semver images `release.yml` already pushed.
+
 Nothing below needs to be done by hand anymore; it is kept as reference for how
-versions are chosen and for manual releases (a manually published GitHub
-Release still triggers the publish paths in ci.yml and docker.yml).
+versions are chosen, and for manual releases (publishing a GitHub Release by hand
+still ships to PyPI via `ci.yml`).
 
 ## Version Management
 
