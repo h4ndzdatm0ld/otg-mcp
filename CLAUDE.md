@@ -121,11 +121,31 @@ Traffic control is written as feature-detection fallback chains rather than vers
 
 ## Release
 
-Releases are automatic and version numbers are not chosen by hand:
-release-please derives them from Conventional Commits, opens a release PR that
-bumps `pyproject.toml` and writes `CHANGELOG.md`, and merging that PR triggers
-the tag, GitHub Release, PyPI publish and semver Docker images
-(`.github/workflows/release.yml`). `fix:` is a patch, `feat:` a minor, and a
-non-conventional commit produces no release at all. Versions are plain semver;
-the pre-1.0 PEP 440 style (`0.1.3a0`, tagged `v0.1.3a`) is history. State lives in
-`.release-please-manifest.json`. Conventions in `RELEASE.md`.
+**Commit messages decide the version, so they are not free-form.** This repo uses
+[Conventional Commits](https://www.conventionalcommits.org/); release-please reads
+them and nobody edits the version by hand.
+
+| Commit prefix | Effect on the version |
+|---|---|
+| `fix: ...` | patch, 0.1.3 to 0.1.4 |
+| `feat: ...` | minor, 0.1.3 to 0.2.0 |
+| `feat!: ...`, or a `BREAKING CHANGE:` footer | minor while below 1.0.0, major after |
+| `docs:` `ci:` `chore:` `test:` `refactor:` `perf:` `deps:` | no release |
+
+A commit with no recognised prefix produces **no release at all**. That is
+deliberate - not every merge deserves a version - but it also means a genuine
+feature written as plain prose ships nothing. The prefix has to be on the commit
+that lands on main, which for a squashed PR is the **PR title**.
+
+The flow: merge a `feat:`/`fix:` to main, and once CI is green release-please
+opens a release PR bumping `pyproject.toml` and writing `CHANGELOG.md`. Merging
+that PR cuts the tag and GitHub Release, then publishes to PyPI and pushes
+`X.Y.Z`, `X.Y` and `latest` images, all from `.github/workflows/release.yml` -
+the only publisher of released artifacts, since `docker.yml` publishes just the
+moving `main` and `sha-<short>` dev tags. It runs on `workflow_run` after "Python
+CI" succeeds, so a merge whose tests failed cannot be released, and
+`workflow_dispatch` cuts a release from history predating this convention.
+
+Versions are plain semver; the pre-1.0 PEP 440 style (`0.1.3a0`, tagged
+`v0.1.3a`) is history. State lives in `.release-please-manifest.json`.
+Conventions in `RELEASE.md`.

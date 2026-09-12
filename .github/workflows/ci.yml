@@ -5,8 +5,6 @@ on:
   push:
   # All pull requests trigger the workflow
   pull_request:
-  release:
-    types: [published]
 
 jobs:
   ansible-lint:
@@ -87,38 +85,8 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
+      # Build check only. The artifact that ships is built from the tag by
+      # release.yml, which is the single PyPI publisher.
       - name: Build package
         run: uv build
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist-${{ matrix.os }}-py${{ matrix.python-version }}
-          path: dist/
-
-  publish:
-    runs-on: ubuntu-latest
-    needs: [build]
-    if: github.event_name == 'release'
-    name: Publish Package
-
-    # Note: To use environments for PyPI publishing, you would need to:
-    # 1. Create a 'release' environment in GitHub repository settings
-    # 2. Add 'environment: release' here
-    # For now, we'll use trusted publishing with OIDC
-    permissions:
-      id-token: write # Required for trusted publishing
-
-    steps:
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: dist-*
-          merge-multiple: true
-          path: dist/
-
-      - name: Publish
-        run: uv publish -t ${{ secrets.PYPI_API_TOKEN }}

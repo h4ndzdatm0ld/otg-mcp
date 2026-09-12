@@ -22,7 +22,13 @@ name: Release
 # every merge deserves a version.
 
 on:
-  push:
+  # Gated on CI rather than on the push itself: a workflow triggered directly by
+  # a push runs regardless of whether the tests passed, so a failing merge could
+  # be tagged and published to PyPI and GHCR. workflow_run fires only after
+  # "Python CI" completes, and the job below refuses anything but success.
+  workflow_run:
+    workflows: ["Python CI"]
+    types: [completed]
     branches: [main]
   # Lets you cut a release from history that predates Conventional Commits,
   # without inventing a commit to trigger it.
@@ -41,16 +47,53 @@ jobs:
   release-please:
     name: Prepare release
     runs-on: ubuntu-latest
+    # A manual run is an explicit decision; an automatic one must follow green CI.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     outputs:
       released: ${{ steps.release.outputs.release_created }}
       tag: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
+      pr_branch: ${{ fromJSON(steps.release.outputs.pr || '{}').headBranchName }}
     steps:
       - id: release
         uses: googleapis/release-please-action@v4
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  # uv.lock records otg-mcp's own version, and release-please only rewrites
+  # pyproject.toml, so a release PR would otherwise ship a lockfile still
+  # pinning the previous version.
+  sync-lockfile:
+    name: Sync uv.lock in the release PR
+    runs-on: ubuntu-latest
+    needs: release-please
+    if: needs.release-please.outputs.pr_branch != ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.pr_branch }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Refresh the lockfile
+        run: uv lock
+
+      - name: Commit if the lockfile moved
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- uv.lock; then
+            echo "uv.lock already matches pyproject.toml"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add uv.lock
+          git commit -m "chore: sync uv.lock with the released version"
+          git push
 
   pypi:
     name: Publish to PyPI
@@ -95,7 +138,10 @@ jobs:
           # release-please produces stable semver, so latest always points at a
           # real release. docker.yml owns the moving dev tags.
           tags: |
-            type=semver,pattern={{version}},value=${{ needs.release-please.outputs.tag }}
+            # Always present: type=semver silently skips a value it considers
+            # invalid semver, and with latest disabled for pre-releases that
+            # would leave the push with no tag whatsoever.
+            type=raw,value=${{ needs.release-please.outputs.version }}
             type=semver,pattern={{major}}.{{minor}},value=${{ needs.release-please.outputs.tag }}
             type=raw,value=latest
 

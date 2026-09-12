@@ -22,7 +22,11 @@ How the version is decided:
 | `fix: ...` | patch (0.1.3 -> 0.1.4) |
 | `feat: ...` | minor (0.1.3 -> 0.2.0) |
 | `feat!: ...` or a `BREAKING CHANGE:` footer | minor while below 1.0.0, major after |
-| `docs:`, `ci:`, `chore:`, `test:`, `refactor:` | none |
+| `docs:`, `ci:`, `chore:`, `test:`, `refactor:`, `perf:`, `deps:` | none |
+
+The prefix must be on the commit that lands on `main`. With squash merges that is
+the **PR title**, so a PR titled without a prefix ships nothing no matter what
+its individual commits said.
 
 A commit that is not conventional produces no release. That is deliberate: not
 every merge deserves a version. Use `workflow_dispatch` on the Release workflow
@@ -34,11 +38,16 @@ to cut one from history that predates this convention.
 |---|---|---|
 | `docker.yml` | branch pushes, PRs | Verification, plus moving dev images `main` and `sha-<short>` |
 | `release.yml` | push to `main`, manual | The release PR, then tag + GitHub Release + PyPI + `X.Y.Z` / `X.Y` / `latest` images |
-| `ci.yml` | pushes, PRs, published release | Tests; PyPI only for a **manually** published release |
+| `ci.yml` | pushes, PRs | Lint, tests and a build check. It no longer publishes: a second PyPI publisher is a double-publish hazard, not a fallback |
 
 Each artifact has exactly one owner. `docker.yml` deliberately does not react to
 tags or releases: an unfiltered `push:` trigger fires on tags too, which would
 publish the same semver images `release.yml` already pushed.
+
+`release.yml` runs on `workflow_run` after "Python CI" succeeds, not on the push
+itself, so a merge whose tests failed cannot be tagged and published. It also
+refreshes `uv.lock` inside the release PR, since that file records the project's
+own version while release-please rewrites only `pyproject.toml`.
 
 ### Versions are plain semver now
 
