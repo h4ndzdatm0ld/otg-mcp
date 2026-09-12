@@ -145,6 +145,33 @@ imports `mcp.server.mcpserver`, which the resolved mcp does not provide. `ansibl
 pins the Ansible control-node tooling, which is deliberately isolated from this
 package.
 
+## Packet capture, and two ways to fool yourself
+
+`start_capture` fails with `capture is not enabled on port "pN"` unless the
+config applied by `set_config` declares a captures block:
+
+```json
+"captures": [{"name": "cap1", "port_names": ["p1"], "format": "pcap", "overwrite": true}]
+```
+
+Nothing infers it from calling the capture tools, so a config without it makes all
+three capture tools fail at the generator.
+
+That failure is easy to miss, because **every tool returns
+`ApiResponse(status="error")` rather than raising** - that is the deliberate
+contract with the MCP client. A test or script that only checks whether the tool
+call raised will score a real failure as a pass. Assert on the `status` field, and
+on `data["status"]` where the payload nests one.
+
+A capture records *received* frames. In one-arm mode, or with an unprovisioned far
+end, the engine's own transmissions are not looped back, so a successful capture
+legitimately yields a 0-byte pcap with `"capture is empty, no frames were
+received"`. To prove the path end to end you need frames genuinely arriving on the
+port: pointing a port at a live segment and generating traffic towards it (a ping
+to a reachable neighbour) produces a real capture. Verified that way - 42 packets,
+valid pcap magic, an ARP exchange followed by ICMP echo - rather than trusting the
+success status.
+
 ## Testing conventions
 
 `tests/conftest.py` inserts `src/` on `sys.path` and provides `api_schema` (parsed `tests/fixtures/apiSchema.yml`), `test_config`, `router` (an `OtgClient`), and `example_target_config`. Tests never touch real hardware; stub `_fetch_remote_schema` rather than reaching for a network, and mock the snappi API object. `tests/schema/` covers per-target fetch, caching, isolation and malformed-document handling. See `tests/README.md`.
