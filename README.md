@@ -204,10 +204,19 @@ target, protocol name, and optionally the protocol instance names to filter:
 }
 ```
 
-Supported protocol metrics are `bgpv4`, `bgpv6`, `bmp_server`,
+The tool accepts the OTG metrics request types `bgpv4`, `bgpv6`, `bmp_server`,
 `dhcpv4_client`, `dhcpv4_server`, `dhcpv6_client`, `dhcpv6_server`, `isis`,
 `lacp`, `lag`, `lldp`, `macsec`, `mka`, `ospfv2`, `ospfv3`, and `rsvp`.
-Available protocols depend on the target implementation.
+These are schema-level request choices, not a claim that every target implements
+each protocol or metric.
+
+Protocol and metric availability depends on the target implementation and port
+type. A target may accept the schema choice but reject the corresponding
+configuration or metrics request when that protocol is unavailable.
+
+Ixia-C Community Edition supports only BGP control-plane protocols on Ixia-C
+ports. The implementation reports: `only '[BGP]' protocol(s) for port type
+Ixia-c is supported in community edition`.
 
 When `set_config` receives
 `options.protocol_options.auto_start_all: true`, the server explicitly starts
