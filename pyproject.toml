@@ -16,7 +16,7 @@ dependencies = [
   # mcp.server.mcpserver, which the resolved mcp does not provide, so test
   # collection dies with ModuleNotFoundError. Moving to fastmcp 4 is a deliberate
   # upgrade that needs its own validation.
-  "fastmcp>=2.2.5,<4",
+  "fastmcp>=2.2.5,<5",
   "pydantic>=2.0.0",
   "pydantic-settings>=2.0.0",
   "httpx>=0.24.1",
