@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/h4ndzdatm0ld/otg-mcp/compare/v1.3.0...v1.3.1) (2026-09-13)
+
+
+### Documentation
+
+* clarify protocol metrics support ([#65](https://github.com/h4ndzdatm0ld/otg-mcp/issues/65)) ([f06fa6b](https://github.com/h4ndzdatm0ld/otg-mcp/commit/f06fa6bf36e39ad119def157070e7484a8b7dc41))
+
 ## [1.3.0](https://github.com/h4ndzdatm0ld/otg-mcp/compare/v1.2.0...v1.3.0) (2026-09-12)
 
 
