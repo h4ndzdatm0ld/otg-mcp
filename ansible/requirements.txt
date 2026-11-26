@@ -4,7 +4,7 @@
 # tests imports Ansible, and its dependency tree is large. It is installed only
 # into the deployment container (see Dockerfile), so `uv pip install -e ".[dev,test]"`
 # and the production dependency set are entirely unaffected.
-ansible-core>=2.19,<2.22
+ansible-core>=2.19.13,<2.22
 ansible-lint>=26.8.0
 # community.docker's docker_compose_v2 and docker_host_info modules need this on
 # the control node.
