@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.1](https://github.com/h4ndzdatm0ld/otg-mcp/compare/v1.3.0...v1.3.1) (2026-11-26)
+
+
+### Dependencies
+
+* refresh compatible Python dependencies ([#91](https://github.com/h4ndzdatm0ld/otg-mcp/issues/91)) ([597230f](https://github.com/h4ndzdatm0ld/otg-mcp/commit/597230f3e896f7537a2956b616773e1d51564621))
+* update ansible-core requirement ([#67](https://github.com/h4ndzdatm0ld/otg-mcp/issues/67)) ([94f7345](https://github.com/h4ndzdatm0ld/otg-mcp/commit/94f7345538c22eb5ae6f5350c7600475e532db90))
+
+
+### Documentation
+
+* clarify protocol metrics support ([#65](https://github.com/h4ndzdatm0ld/otg-mcp/issues/65)) ([f06fa6b](https://github.com/h4ndzdatm0ld/otg-mcp/commit/f06fa6bf36e39ad119def157070e7484a8b7dc41))
+
 ## [1.3.0](https://github.com/h4ndzdatm0ld/otg-mcp/compare/v1.2.0...v1.3.0) (2026-09-12)
 
 
